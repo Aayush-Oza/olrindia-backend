@@ -1,0 +1,31 @@
+# OLR India - Git Ignore
+
+# Environment variables - NEVER push to GitHub
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Flask
+instance/
+
+# migrations (optional - remove if you want to track migrations)
+# migrations/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+
+#firebase service account (contains sensitive credentials)
+firebase-service-account.json
