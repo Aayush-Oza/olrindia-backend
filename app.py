@@ -41,13 +41,11 @@ def create_app(env=None):
     # Allow frontend to talk to backend
     # In production replace with actual domain
     CORS(app,
-         origins=[
-             "http://localhost:5500",       # VS Code Live Server
-             "http://localhost:3000",       # Alternative local
-             "https://rentalindia.com",     # Production domain
-             "https://www.rentalindia.com", # Production www
-         ],
-         supports_credentials=True          # Required for cookies to work
+        origins=[
+            "https://olrindia.com",
+            "https://www.olrindia.com",
+        ],
+        supports_credentials=True
     )
 
     # ── Register Blueprints (Routes) ──────────────────────────────────────────
