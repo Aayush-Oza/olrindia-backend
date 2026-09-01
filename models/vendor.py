@@ -242,24 +242,28 @@ class Product(db.Model):
     vendor_id        = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False)
     category = db.Column(db.Enum(
         "Construction Equipment",
-        "Hotel & Resorts",
-        "Furniture",
-        "Electrical Tools",
-        "Home Appliances",
-        "Fashion",
+        "Furniture & Home Appliances",
+        "Party & Celebration Decor",
+        "Photography & Content Creator Gear",
         "Events & Weddings",
-        "Commercial Vehicles",
-        "Passenger Vehicles",
+        "Fashion & Designer Wear",
         "Agricultural Equipment",
-        "Warehouse",
+        "Passenger Vehicles",
+        "Bikes & Scooters",
+        "Medical Equipment",
+        "Baby & Kids Gear",
+        "Adventure & Trekking Gear",
+        "Sports & Fitness Equipment",
+        "Electrical & Power Tools",
+        "Commercial Vehicles",
+        "Tools & Tackles",
         "Properties",
-        "Bikes",
         "Industrial Equipment",
-        "Machineries",
-        "Tools & tackles",
-        "Medical equipments",
+        "Warehouse & Storage",
         "Cargo & Shipping",
-        "Camping"
+        "Machineries",
+        "Residential Properties",
+        "Musical Instruments",
     ), nullable=False)
 
     subcategory = db.Column(db.String(100), nullable=True)
@@ -386,68 +390,234 @@ class ProductInquiry(db.Model):
 
 
 PRODUCT_CATEGORIES = {
-    "Furniture": [
-        "Sofa", "Dining Table", "Bed", "Wardrobe", "Chair", "Coffee Table", "Bookshelf", "TV Unit", "Cabinet"
-    ],
-    "Camping": [
-        "Tent", "Caravan Van", "Barbecue", "Others"
-    ],
+
     "Construction Equipment": [
-        "Excavator", "JCB / Backhoe", "Bulldozer", "Crane", "Concrete Mixer",
-        "Scaffolding", "Power Tools", "Road Roller", "Drill Machine"
+        "Excavator / JCB",
+        "Backhoe Loader",
+        "Concrete Mixer",
+        "Scaffolding & Shuttering",
+        "Crane (Mobile / Tower)",
+        "Road Roller / Compactor",
+        "Generator (site use)",
+        "Dump Truck / Tipper"
     ],
-    "Hotel & Resorts": [
-        "Luxury Hotel", "Resort", "Boutique Hotel", "Beach Resort", "Mountain Resort", "Spa & Wellness Center", "Conference Center"
+
+    "Furniture & Home Appliances": [
+        "Bed + Mattress",
+        "Sofa / Sectional",
+        "Wardrobe",
+        "Dining Table + Chairs",
+        "Refrigerator",
+        "Washing Machine",
+        "Air Conditioner",
+        "Television"
     ],
-    "Electrical Tools": [
-        "Drill Machine", "Welding Machine", "Generator", "Cable & Wiring Tools",
-        "Power Tools", "Inverter", "Testing Equipment"
+
+    "Party & Celebration Decor": [
+        "Balloon Arch + Column Setup",
+        "Photo Booth + Backdrop",
+        "LED Letter & Number Lights",
+        "Throne / King Queen Chairs",
+        "Chocolate Fountain / Candy Cart",
+        "Fog / Bubble Machine",
+        "Bounce Castle / Soft Play Zone",
+        "Neon Sign (custom)"
     ],
-    "Home Appliances": [
-        "Refrigerator", "Washing Machine", "Air Conditioner", "Microwave",
-        "Water Purifier", "TV", "Geyser"
+
+    "Photography & Content Creator Gear": [
+        "DSLR / Mirrorless Camera",
+        "Drone",
+        "Ring Light / Softbox Kit",
+        "Gimbal / Stabilizer",
+        "Microphone (lapel or shotgun)",
+        "Green Screen Setup",
+        "Camera Lens (wide, telephoto, macro)",
+        "Podcast / Streaming Kit"
     ],
-    "Fashion": [
-        "Bridal Dress", "Designer Clothes", "Jewellery", "Sherwani / Suits",
-        "Footwear", "Accessories"
-    ],
+
     "Events & Weddings": [
-        "Chairs", "Tables", "Sound System", "LED Wall", "Decoration Items",
-        "Tents / Mandap", "Lighting", "DJ Equipment"
+        "Mandap / Wedding Stage",
+        "Shamiyana / Tent Structure",
+        "PA Sound System + DJ Setup",
+        "LED Video Wall",
+        "Banquet Chairs + Tables",
+        "Stage Lighting Rig",
+        "Flower Decoration Setup",
+        "Portable Generator (event backup)"
     ],
-    "Commercial Vehicles": [
-        "Mini Truck", "Tempo", "Container Truck", "Tanker", "Pickup Van", "Trailer"
+
+    "Fashion & Designer Wear": [
+        "Bridal Lehenga",
+        "Sherwani (bridal + guest)",
+        "Designer Saree",
+        "Cocktail Gown",
+        "Bridal Jewellery Set",
+        "Fancy Dress / Themed Costume",
+        "Indo-Western Coord Set"
     ],
-    "Passenger Vehicles": [
-        "Sedan", "SUV", "Hatchback", "Luxury Car", "Tempo Traveller", "Minibus"
-    ],
+
     "Agricultural Equipment": [
-        "Tractor", "Harvester", "Plough", "Tiller", "Seed Drill", "Sprayer", "Trailer"
+        "Tractor",
+        "Rotavator",
+        "Combine Harvester",
+        "Seed Drill",
+        "Sprayer (power / drone)",
+        "Water Pump",
+        "Thresher / Reaper Binder"
     ],
-    "Warehouse": [
-        "Storage Space", "Cold Storage", "Loading Dock Space", "Pallet Racks", "Forklift"
+
+    "Passenger Vehicles": [
+        "Hatchback (self-drive)",
+        "Sedan (self-drive)",
+        "SUV / MUV",
+        "Luxury Car (wedding / event)",
+        "Electric Car",
+        "7-Seater Van"
     ],
+
+    "Bikes & Scooters": [
+        "Standard Scooter",
+        "Cruiser Bike (Royal Enfield)",
+        "Sports Bike",
+        "Electric Scooter",
+        "Electric Bike",
+        "Delivery / Cargo Bike"
+    ],
+
+    "Medical Equipment": [
+        "Hospital Bed (fowler / electric)",
+        "Wheelchair (manual / motorized)",
+        "Oxygen Concentrator",
+        "BiPAP / CPAP Machine",
+        "Nebulizer",
+        "DVT / CPM Machine (rehab)",
+        "Walker / Crutches"
+    ],
+
+    "Baby & Kids Gear": [
+        "Crib / Cot",
+        "Stroller / Pram",
+        "Car Seat",
+        "High Chair",
+        "Baby Bouncer / Rocker",
+        "Breast Pump",
+        "Baby Carrier / Wrap"
+    ],
+
+    "Adventure & Trekking Gear": [
+        "Sleeping Bag",
+        "Camping Tent",
+        "Down Jacket / Snow Gear",
+        "Trekking Backpack",
+        "Trekking Poles",
+        "Trekking Shoes",
+        "Camp Stove + Cooking Kit"
+    ],
+
+    "Sports & Fitness Equipment": [
+        "Treadmill",
+        "Exercise / Spin Bike",
+        "Adjustable Dumbbells Set",
+        "Multi-station Home Gym",
+        "Table Tennis Table",
+        "Cricket Kit",
+        "Badminton / Sports Net Set"
+    ],
+
+    "Electrical & Power Tools": [
+        "Electric Drill / Hammer Drill",
+        "Angle Grinder",
+        "Welding Machine",
+        "Circular Saw / Jigsaw",
+        "Pressure Washer",
+        "Portable Generator (home use)",
+        "Tile Cutter"
+    ],
+
+    "Commercial Vehicles": [
+        "Mini Truck / Tempo (Tata Ace)",
+        "Pickup Truck",
+        "Medium Truck (8–12 tonne)",
+        "Refrigerated Van",
+        "Car Carrier",
+        "Tipper (small, home construction)"
+    ],
+
+    "Tools & Tackles": [
+        "Basic Hand Tool Kit (hammer, screwdrivers, pliers)",
+        "Plumbing Tool Set",
+        "Ladder (aluminium / telescopic)",
+        "Spray Paint Gun",
+        "Drain Snake / Pipe Auger",
+        "Safety Harness + Rope",
+        "Nail Gun / Staple Gun"
+    ],
+
     "Properties": [
-        "Office Space", "Shop / Retail Space", "Banquet Hall", "Flat / Apartment",
-        "Farmhouse", "Co-working Space"
+        "Co-working Desk / Hot Desk",
+        "Private Cabin / Office",
+        "Meeting Room (hourly)",
+        "Banquet Hall",
+        "Farmhouse / Lawn (event)",
+        "Pop-up Retail Kiosk",
+        "Conference / Training Hall"
     ],
-    "Bikes": [
-        "Scooter", "Motorcycle", "Electric Bike", "Sports Bike"
-    ],
+
     "Industrial Equipment": [
-        "Compressor", "Generator", "Forklift", "Pump", "Boiler", "Hydraulic Equipment"
+        "Forklift",
+        "Mobile Crane",
+        "Scissor Lift / Boom Lift",
+        "Air Compressor (industrial)",
+        "Diesel Generator (100–500 KVA)",
+        "Conveyor Belt (portable)",
+        "Industrial Pressure Washer"
     ],
-    "Machineries": [
-        "CNC Machine", "Lathe Machine", "Packaging Machine", "Printing Machine", "Textile Machine"
+
+    "Warehouse & Storage": [
+        "Dry General Storage Unit",
+        "Cold Storage / Refrigerated Space",
+        "E-commerce Fulfilment Bay",
+        "Document Storage Room",
+        "Seasonal Overflow Space",
+        "Event Equipment Storage Bay"
     ],
-    "Tools & tackles": [
-        "Hand Tools", "Power Tools", "Measuring Tools", "Cutting Tools", "Welding Tools"
-    ],
-    "Medical equipments": [
-        "X-ray Machine", "Ultrasound Machine", "ECG Machine", "Defibrillator", "Ventilator"
-    ],
+
     "Cargo & Shipping": [
-        "Truck", "Container", "Ship", "Airplane", "Train"
+        "Mini Truck (1–2 tonne)",
+        "Heavy Truck (10–25 tonne)",
+        "Flatbed Trailer",
+        "Refrigerated Truck",
+        "ODC / Over-dimensional Trailer",
+        "Tanker Truck"
+    ],
+
+    "Machineries": [
+        "Fabric / Textile Printing Machine",
+        "Packaging / Sealing Machine",
+        "CNC / Lathe Machine",
+        "Hydraulic Press",
+        "Industrial Weighing Scale",
+        "Injection Moulding Machine"
+    ],
+
+    "Residential Properties": [
+        "1BHK Apartment",
+        "2BHK Apartment",
+        "Studio / Bachelor Flat",
+        "PG / Paying Guest Room",
+        "Co-living Room",
+        "Service Apartment (furnished, short-stay)",
+        "Villa / Independent House"
+    ],
+    
+    "Musical Instruments": [
+        "Acoustic Guitar",
+        "Electric Guitar",
+        "Piano",
+        "Drums",
+        "Violin",
+        "Flute",
+        "Saxophone"
     ]
 }
 
