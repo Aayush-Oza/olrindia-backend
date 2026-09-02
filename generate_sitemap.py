@@ -1,4 +1,4 @@
-# generate_sitemap.py — standalone script, run manually. Not imported by app.py.
+# generate_sitemap.py - standalone script, run manually. Not imported by app.py.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
