@@ -170,7 +170,7 @@ def share_product(slug):
 <meta property="og:title" content="{p.name}">
 <meta property="og:description" content="{description}">
 <meta property="og:image" content="{image}">
-<meta property="og:url" content="https://olrindia.duckdns.org{real_url}">
+<meta property="og:url" content="https://olrindia.com{real_url}">
 <meta property="og:type" content="product">
 <meta property="og:site_name" content="OLR India">
 <meta name="twitter:card" content="summary_large_image">
