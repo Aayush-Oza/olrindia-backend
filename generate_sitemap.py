@@ -1,5 +1,5 @@
 # generate_sitemap.py - standalone script, run manually. Not imported by app.py.
-import sys, os
+import sys, os, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app
@@ -10,6 +10,11 @@ OUTPUT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "frontend", "sitemap-products.xml"
 )
+
+def slugify(text):
+    return re.sub(r'[^a-z0-9]+', '-',
+        (text or '').lower().replace('&', 'and')
+    ).strip('-')
 
 def generate():
     with app.app_context():
@@ -26,7 +31,10 @@ def generate():
 
         urls = []
         for p, v in rows:
-            loc = f"https://olrindia.com/p.html?slug={p.share_slug}"
+            cat  = slugify(p.category or '')
+            city = slugify(p.city or 'india')
+            slug = p.share_slug
+            loc  = f"https://olrindia.com/product/{cat}/{city}/{slug}"
             urls.append(f"""  <url>
     <loc>{loc}</loc>
     <changefreq>weekly</changefreq>
