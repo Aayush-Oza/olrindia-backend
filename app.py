@@ -19,7 +19,8 @@ from flask_limiter.errors import RateLimitExceeded
 # ── Import Blueprints ─────────────────────────────────────────────────────────
 from routes.auth.user_auth import user_auth_bp
 from routes.auth.vendor_auth import vendor_auth_bp
-from routes.public import public_bp,seo_bp
+from routes.public import public_bp
+from routes.seo import seo_bp
 from routes.auth.admin_auth import admin_auth_bp
 
 def create_app(env=None):
