@@ -19,7 +19,7 @@ from flask_limiter.errors import RateLimitExceeded
 # ── Import Blueprints ─────────────────────────────────────────────────────────
 from routes.auth.user_auth import user_auth_bp
 from routes.auth.vendor_auth import vendor_auth_bp
-from routes.public import public_bp
+from routes.public import public_bp,seo_bp
 from routes.auth.admin_auth import admin_auth_bp
 
 def create_app(env=None):
@@ -53,6 +53,7 @@ def create_app(env=None):
     app.register_blueprint(vendor_auth_bp, url_prefix="/auth/vendor")
     app.register_blueprint(public_bp, url_prefix="/products")
     app.register_blueprint(admin_auth_bp, url_prefix="/auth/admin")
+    app.register_blueprint(seo_bp, url_prefix="")
 
     # ── JWT Error Handlers ────────────────────────────────────────────────────
     @jwt.unauthorized_loader

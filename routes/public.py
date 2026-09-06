@@ -131,60 +131,6 @@ def is_crawler(user_agent: str) -> bool:
     ua = (user_agent or "").lower()
     return any(bot in ua for bot in CRAWLER_UA_SUBSTRINGS)
 
-
-# ── Shareable product link with rich preview ────────────────────
-@public_bp.route("/share/<string:slug>", methods=["GET"])
-@limiter.limit("30 per minute")
-def share_product(slug):
-    p = Product.query.filter_by(share_slug=slug, is_active=True).first()
-    if not p:
-        return redirect("/index.html")
-
-    v = Vendor.query.get(p.vendor_id)
-    if not v or not v.is_active or not v.is_verified:
-        return redirect("/index.html")
-
-    real_url = f"/p.html?slug={slug}"
-
-    if not is_crawler(request.headers.get("User-Agent")):
-        # Real visitor - send them straight to the actual app page
-        return redirect(real_url, code=302)
-
-    # Crawler - build a rich preview
-    image = p.image1 or ""
-    price = (
-        f"₹{p.rent_per_hour}/hour" if p.rent_per_hour else
-        f"₹{p.rent_per_km}/km" if p.rent_per_km else
-        f"₹{p.rent_per_day}/day" if p.rent_per_day else
-        f"₹{p.rent_per_month}/month" if p.rent_per_month else ""
-    )
-    description = f"{price} · {p.category}" if price else p.category
-    vendor_name = v.name
-    title = f"{p.name} – {vendor_name} | OLR India"
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>{title}</title>
-<meta property="og:title" content="{p.name}">
-<meta property="og:description" content="{description}">
-<meta property="og:image" content="{image}">
-<meta property="og:url" content="https://olrindia.com{real_url}">
-<meta property="og:type" content="product">
-<meta property="og:site_name" content="OLR India">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="{p.name}">
-<meta name="twitter:description" content="{description}">
-<meta name="twitter:image" content="{image}">
-</head>
-<body>
-<p>{p.name} is available on OLR India. <a href="{real_url}">View listing</a></p>
-</body>
-</html>"""
-
-    return html, 200, {"Content-Type": "text/html"}
-
 @public_bp.route('/.well-known/assetlinks.json', methods=["GET"])
 def assetlinks():
     data = [{
