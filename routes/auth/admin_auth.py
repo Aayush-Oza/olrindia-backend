@@ -520,7 +520,6 @@ def get_vendor_detail(vendor_id):
         "effective_plan": vendor.effective_plan_name(),
         "subscription_expires_at": vendor.subscription_expires_at.strftime("%d %b %Y") if vendor.subscription_expires_at else None,
         "is_subscription_active": vendor.is_subscription_active(),
-        "is_trial_active": vendor.is_trial_active(),
         "badge": vendor.badge(),
         "priority_score": vendor.priority_score(),
         "max_active_posts": vendor.max_active_posts(),  # None = unlimited

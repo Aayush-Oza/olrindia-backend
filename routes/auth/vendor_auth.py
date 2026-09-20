@@ -28,7 +28,7 @@ from extensions import limiter
 vendor_auth_bp = Blueprint("vendor_auth", __name__)
 
 # Plan rank helper - single source of truth used in payment logic
-#PLAN_RANK = {"free": 0, "trial": 0, "starter": 1, "growth": 2, "premium": 3}
+PLAN_RANK = {"free": 0, "starter": 1, "growth": 2, "premium": 3}
 
 
 def validate_password(password, confirm_password):
@@ -62,10 +62,8 @@ def vendor_public_dict(vendor):
         "email": vendor.email,
         "profile_photo": vendor.profile_photo,
         "subscription_plan": vendor.effective_plan_name(),
-        "badge": None,  # TODO: RE-ENABLE SUBSCRIPTIONS
-        "has_verified_badge": False,  # TODO: RE-ENABLE SUBSCRIPTIONS
-        # "badge": vendor.badge(),
-        # "has_verified_badge": vendor.has_verified_badge(),
+        "badge": vendor.badge(),
+        "has_verified_badge": vendor.has_verified_badge(),
         "max_active_posts": vendor.max_active_posts(),
         "active_product_count": vendor.active_product_count(),
         "pending_plan": vendor.pending_plan,
@@ -114,8 +112,7 @@ def register():
             name=name, email=email, mobile=mobile,
             password_hash=password_hash, 
             gst_number=gst_number, pincode=pincode, city=city, state=state, area=area,
-            is_verified=False, subscription_plan="trial",
-            subscription_expires_at=Vendor.start_trial_expiry()
+            is_verified=False, subscription_plan="free",
         )
         db.session.add(vendor)
         db.session.flush()
@@ -323,19 +320,15 @@ def get_profile():
         "pincode": v.pincode, "area": v.area, "city": v.city, "state": v.state,
         "profile_photo": v.profile_photo,
         "subscription_plan": v.effective_plan_name(),
-        "badge": None,  # TODO: RE-ENABLE SUBSCRIPTIONS
-        "has_verified_badge": False,  # TODO: RE-ENABLE SUBSCRIPTIONS
-        # "badge": v.badge(),
-        # "has_verified_badge": v.has_verified_badge(),
+        "badge": v.badge(),
+        "has_verified_badge": v.has_verified_badge(),
         "max_active_posts": v.max_active_posts(),
         "active_product_count": v.active_product_count(),
         "subscription_expires_at": str(v.subscription_expires_at) if v.subscription_expires_at else None,
         "is_verified": v.is_verified, "created_at": str(v.created_at),
         "is_active": v.is_active,
-        #"days_until_expiry": v.days_until_expiry(),
-        #"show_expiry_banner": v.should_show_expiry_banner(),
-        "days_until_expiry": None,
-        "show_expiry_banner": False,
+        "days_until_expiry": v.days_until_expiry(),
+        "show_expiry_banner": v.should_show_expiry_banner(),
         "suspended_reason": v.suspended_reason,
         "pending_plan": v.pending_plan,
     }}), 200
@@ -417,25 +410,24 @@ def get_products():
     return jsonify({
         "success": True,
         "products": [p.to_dict() for p in products],
-        # "expiry_banner": {
-        #     "show": v.should_show_expiry_banner(),
-        #     "days_left": v.days_until_expiry(),
-        #     "plan": v.effective_plan_name(),
-        #     "message": (
-        #         f"Your {v.effective_plan_name().capitalize()} plan expires in "
-        #         f"{v.days_until_expiry()} day(s)! Renew now or only your top 3 "
-        #         f"products (by clicks) will stay active."
-        #     ) if v.should_show_expiry_banner() else None
-        # }
+        "expiry_banner": {
+            "show": v.should_show_expiry_banner(),
+            "days_left": v.days_until_expiry(),
+            "plan": v.effective_plan_name(),
+            "message": (
+                f"Your {v.effective_plan_name().capitalize()} plan expires in "
+                f"{v.days_until_expiry()} day(s)! Renew now to keep all listings active."
+            ) if v.should_show_expiry_banner() else None
+        }
     }), 200
 
 @vendor_auth_bp.route("/categories", methods=["GET"])
 def get_categories():
     return jsonify({"success": True, "categories": PRODUCT_CATEGORIES}), 200
 
-# @vendor_auth_bp.route("/plans", methods=["GET"])
-# def get_plans():
-#     return jsonify({"success": True, "plans": PLAN_LIMITS}), 200
+@vendor_auth_bp.route("/plans", methods=["GET"])
+def get_plans():
+    return jsonify({"success": True, "plans": PLAN_LIMITS}), 200
 
 @vendor_auth_bp.route("/products", methods=["POST"])
 @limiter.limit("20 per hour")
@@ -647,315 +639,315 @@ def get_vendor_firebase_token():
 
 
 # ── SUBSCRIBE: Vendor selects a plan → create Razorpay order ─────────────────
-# @vendor_auth_bp.route("/subscribe", methods=["POST"])
-# @limiter.limit("10 per hour")
-# @jwt_required()
-# def subscribe():
-#     vendor_id = int(get_jwt_identity())
-#     v = Vendor.query.get(vendor_id)
-#     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
-#     suspended = check_suspended(v)
-#     if suspended: return suspended
+@vendor_auth_bp.route("/subscribe", methods=["POST"])
+@limiter.limit("10 per hour")
+@jwt_required()
+def subscribe():
+    vendor_id = int(get_jwt_identity())
+    v = Vendor.query.get(vendor_id)
+    if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
+    suspended = check_suspended(v)
+    if suspended: return suspended
 
-#     data = request.get_json()
-#     plan = (data or {}).get("plan", "").strip().lower()
-#     if plan not in ("starter", "growth", "premium"):
-#         return jsonify({"success": False, "message": "Invalid plan. Choose starter, growth, or premium."}), 400
+    data = request.get_json()
+    plan = (data or {}).get("plan", "").strip().lower()
+    if plan not in ("starter", "growth", "premium"):
+        return jsonify({"success": False, "message": "Invalid plan. Choose starter, growth, or premium."}), 400
 
-#     plan_info  = PLAN_LIMITS[plan]
-#     amount_inr = plan_info["price"]
+    plan_info  = PLAN_LIMITS[plan]
+    amount_inr = plan_info["price"]
 
-#     order = create_order(amount_inr, plan, vendor_id)
-#     if not order:
-#         return jsonify({"success": False, "message": "Could not initiate payment. Please try again."}), 500
+    order = create_order(amount_inr, plan, vendor_id)
+    if not order:
+        return jsonify({"success": False, "message": "Could not initiate payment. Please try again."}), 500
 
-#     payment = VendorPayment(
-#         vendor_id=vendor_id, plan=plan, amount_inr=amount_inr,
-#         razorpay_order_id=order["id"], status="created", duration_days=30,
-#     )
-#     db.session.add(payment)
-#     db.session.commit()
+    payment = VendorPayment(
+        vendor_id=vendor_id, plan=plan, amount_inr=amount_inr,
+        razorpay_order_id=order["id"], status="created", duration_days=30,
+    )
+    db.session.add(payment)
+    db.session.commit()
 
-#     return jsonify({
-#         "success":    True,
-#         "order_id":   order["id"],
-#         "amount":     order["amount"],
-#         "currency":   order["currency"],
-#         "key_id":     current_app.config["RAZORPAY_KEY_ID"],
-#         "vendor":     {"name": v.name, "email": v.email},
-#         "plan_label": plan_info["label"],
-#     }), 200
+    return jsonify({
+        "success":    True,
+        "order_id":   order["id"],
+        "amount":     order["amount"],
+        "currency":   order["currency"],
+        "key_id":     current_app.config["RAZORPAY_KEY_ID"],
+        "vendor":     {"name": v.name, "email": v.email},
+        "plan_label": plan_info["label"],
+    }), 200
 
 
 # ── PAYMENT VERIFY: Frontend sends payment proof → activate plan ──────────────
-# @vendor_auth_bp.route("/payment/verify", methods=["POST"])
-# @limiter.limit("10 per hour")
-# @jwt_required()
-# def verify_payment():
-#     """
-#     Plan transition rules
-#     ─────────────────────────────────────────────────────────────────
-#     CASE A  No active paid plan (free/expired/trial):
-#               Activate new plan immediately. Expiry = now + 30 days.
+@vendor_auth_bp.route("/payment/verify", methods=["POST"])
+@limiter.limit("10 per hour")
+@jwt_required()
+def verify_payment():
+    """
+    Plan transition rules
+    ─────────────────────────────────────────────────────────────────
+    CASE A  No active paid plan (free/expired/trial):
+              Activate new plan immediately. Expiry = now + 30 days.
 
-#     CASE B  Active plan + buying HIGHER plan (upgrade):
-#               Switch plan now. Extend expiry by 30 days from current expiry.
-#               Vendor keeps remaining days on old plan - nothing is lost.
+    CASE B  Active plan + buying HIGHER plan (upgrade):
+              Switch plan now. Extend expiry by 30 days from current expiry.
+              Vendor keeps remaining days on old plan - nothing is lost.
 
-#     CASE C  Active plan + buying SAME plan (renewal):
-#               Keep plan. Extend expiry by 30 days from current expiry.
+    CASE C  Active plan + buying SAME plan (renewal):
+              Keep plan. Extend expiry by 30 days from current expiry.
 
-#     CASE D  Active plan + buying LOWER plan (downgrade):
-#               DO NOT switch plan yet. Store as pending_plan.
-#               Extend expiry by 30 days from current expiry.
-#               plan_expiry_job activates pending_plan at next cycle end.
-#               Vendor keeps higher plan for remainder of current cycle.
-#     ─────────────────────────────────────────────────────────────────
-#     """
-#     vendor_id = int(get_jwt_identity())
-#     v = Vendor.query.get(vendor_id)
-#     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
+    CASE D  Active plan + buying LOWER plan (downgrade):
+              DO NOT switch plan yet. Store as pending_plan.
+              Extend expiry by 30 days from current expiry.
+              plan_expiry_job activates pending_plan at next cycle end.
+              Vendor keeps higher plan for remainder of current cycle.
+    ─────────────────────────────────────────────────────────────────
+    """
+    vendor_id = int(get_jwt_identity())
+    v = Vendor.query.get(vendor_id)
+    if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
 
-#     data       = request.get_json() or {}
-#     order_id   = data.get("razorpay_order_id", "").strip()
-#     payment_id = data.get("razorpay_payment_id", "").strip()
-#     signature  = data.get("razorpay_signature", "").strip()
+    data       = request.get_json() or {}
+    order_id   = data.get("razorpay_order_id", "").strip()
+    payment_id = data.get("razorpay_payment_id", "").strip()
+    signature  = data.get("razorpay_signature", "").strip()
 
-#     if not order_id or not payment_id or not signature:
-#         return jsonify({"success": False, "message": "razorpay_order_id, razorpay_payment_id and razorpay_signature are all required."}), 400
+    if not order_id or not payment_id or not signature:
+        return jsonify({"success": False, "message": "razorpay_order_id, razorpay_payment_id and razorpay_signature are all required."}), 400
 
-#     payment = VendorPayment.query.filter_by(
-#         razorpay_order_id=order_id, vendor_id=vendor_id, status="created"
-#     ).first()
-#     if not payment:
-#         return jsonify({"success": False, "message": "Order not found or already processed."}), 404
+    payment = VendorPayment.query.filter_by(
+        razorpay_order_id=order_id, vendor_id=vendor_id, status="created"
+    ).first()
+    if not payment:
+        return jsonify({"success": False, "message": "Order not found or already processed."}), 404
 
-#     if not verify_signature(order_id, payment_id, signature):
-#         payment.status = "failed"
-#         db.session.commit()
-#         return jsonify({"success": False, "message": "Payment verification failed. Please contact support."}), 400
+    if not verify_signature(order_id, payment_id, signature):
+        payment.status = "failed"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Payment verification failed. Please contact support."}), 400
 
-#     # ── Signature valid ───────────────────────────────────────────────────────
-#     now = datetime.utcnow()
-#     payment.razorpay_payment_id = payment_id
-#     payment.razorpay_signature  = signature
-#     payment.status              = "paid"
-#     payment.paid_at             = now
+    # ── Signature valid ───────────────────────────────────────────────────────
+    now = datetime.utcnow()
+    payment.razorpay_payment_id = payment_id
+    payment.razorpay_signature  = signature
+    payment.status              = "paid"
+    payment.paid_at             = now
 
-#     new_plan     = payment.plan
-#     new_rank     = PLAN_RANK.get(new_plan, 0)
-#     current_plan = v.effective_plan_name()   # accounts for expiry → "free"
-#     current_rank = PLAN_RANK.get(current_plan, 0)
+    new_plan     = payment.plan
+    new_rank     = PLAN_RANK.get(new_plan, 0)
+    current_plan = v.effective_plan_name()   # accounts for expiry → "free"
+    current_rank = PLAN_RANK.get(current_plan, 0)
 
-#     # An "active" paid plan means: paid tier, not expired
-#     plan_is_active = (
-#         v.subscription_expires_at is not None and
-#         v.subscription_expires_at > now and
-#         current_plan not in ("free", "trial")
-#     )
+    # An "active" paid plan means: paid tier, not expired
+    plan_is_active = (
+        v.subscription_expires_at is not None and
+        v.subscription_expires_at > now and
+        current_plan not in ("free")
+    )
 
-#     if not plan_is_active:
-#         # CASE A - No active paid plan
-#         v.subscription_plan       = new_plan
-#         v.subscription_expires_at = now + timedelta(days=payment.duration_days)
-#         v.pending_plan            = None
-#         payment.period_start      = now
-#         payment.period_end        = v.subscription_expires_at
-#         transition = "activated"
+    if not plan_is_active:
+        # CASE A - No active paid plan
+        v.subscription_plan       = new_plan
+        v.subscription_expires_at = now + timedelta(days=payment.duration_days)
+        v.pending_plan            = None
+        payment.period_start      = now
+        payment.period_end        = v.subscription_expires_at
+        transition = "activated"
 
-#     elif new_rank > current_rank:
-#         # CASE B - Upgrade: queue for next cycle
-#         old_expiry           = v.subscription_expires_at
-#         v.pending_plan       = new_plan
-#         payment.period_start = old_expiry
-#         payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
-#         transition = "pending_upgrade"
+    elif new_rank > current_rank:
+        # CASE B - Upgrade: queue for next cycle
+        old_expiry           = v.subscription_expires_at
+        v.pending_plan       = new_plan
+        payment.period_start = old_expiry
+        payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
+        transition = "pending_upgrade"
 
-#     elif new_rank == current_rank:
-#         # CASE C - Same plan renewal
-#         v.subscription_plan       = new_plan
-#         v.subscription_expires_at = v.subscription_expires_at + timedelta(days=payment.duration_days)
-#         v.pending_plan            = None
-#         payment.period_start      = v.subscription_expires_at - timedelta(days=payment.duration_days)
-#         payment.period_end        = v.subscription_expires_at
-#         transition = "renewed"
+    elif new_rank == current_rank:
+        # CASE C - Same plan renewal
+        v.subscription_plan       = new_plan
+        v.subscription_expires_at = v.subscription_expires_at + timedelta(days=payment.duration_days)
+        v.pending_plan            = None
+        payment.period_start      = v.subscription_expires_at - timedelta(days=payment.duration_days)
+        payment.period_end        = v.subscription_expires_at
+        transition = "renewed"
 
 
-#     else:
-#         # CASE D - Downgrade: keep current plan, queue new one
-#         # Do NOT touch subscription_plan or subscription_expires_at
-#         old_expiry           = v.subscription_expires_at
-#         v.pending_plan       = new_plan
-#         payment.period_start = old_expiry  # starts after current plan ends
-#         payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
-#         transition = "pending_downgrade"
+    else:
+        # CASE D - Downgrade: keep current plan, queue new one
+        # Do NOT touch subscription_plan or subscription_expires_at
+        old_expiry           = v.subscription_expires_at
+        v.pending_plan       = new_plan
+        payment.period_start = old_expiry  # starts after current plan ends
+        payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
+        transition = "pending_downgrade"
 
-#     # Reactivate plan_expired products for any case except downgrade
-#     if transition not in ("pending_downgrade", "pending_upgrade"):
-#         Product.query.filter_by(
-#             vendor_id=vendor_id, is_active=False, deactivated_by="plan_expired"
-#         ).update({"is_active": True, "deactivated_by": None})
+    # Reactivate plan_expired products for any case except downgrade
+    if transition not in ("pending_downgrade", "pending_upgrade"):
+        Product.query.filter_by(
+            vendor_id=vendor_id, is_active=False, deactivated_by="plan_expired"
+        ).update({"is_active": True, "deactivated_by": None})
 
-#     db.session.commit()
+    db.session.commit()
 
-#     # Human-readable message
-#     expiry_str = v.subscription_expires_at.strftime("%-d %B %Y") if v.subscription_expires_at else ""
-#     if transition == "activated":
-#         msg = f"You're now on the {new_plan.capitalize()} plan! Active until {expiry_str}."
-#     elif transition == "upgraded":
-#         msg = f"Upgraded to {new_plan.capitalize()}! Your plan is active until {expiry_str}."
-#     elif transition == "renewed":
-#         msg = f"{new_plan.capitalize()} plan renewed. Active until {expiry_str}."
-#     elif transition == "pending_upgrade":
-#         msg = (
-#             f"Payment confirmed. You'll stay on {current_plan.capitalize()} until {expiry_str}, "
-#             f"then upgrade to {new_plan.capitalize()} at the next cycle."
-#         )
-#     else:
-#         msg = (
-#             f"Payment confirmed. You'll stay on {current_plan.capitalize()} until {expiry_str}, "
-#             f"then switch to {new_plan.capitalize()} at the next cycle."
-#         )
+    # Human-readable message
+    expiry_str = v.subscription_expires_at.strftime("%-d %B %Y") if v.subscription_expires_at else ""
+    if transition == "activated":
+        msg = f"You're now on the {new_plan.capitalize()} plan! Active until {expiry_str}."
+    elif transition == "upgraded":
+        msg = f"Upgraded to {new_plan.capitalize()}! Your plan is active until {expiry_str}."
+    elif transition == "renewed":
+        msg = f"{new_plan.capitalize()} plan renewed. Active until {expiry_str}."
+    elif transition == "pending_upgrade":
+        msg = (
+            f"Payment confirmed. You'll stay on {current_plan.capitalize()} until {expiry_str}, "
+            f"then upgrade to {new_plan.capitalize()} at the next cycle."
+        )
+    else:
+        msg = (
+            f"Payment confirmed. You'll stay on {current_plan.capitalize()} until {expiry_str}, "
+            f"then switch to {new_plan.capitalize()} at the next cycle."
+        )
 
-#     return jsonify({
-#         "success":    True,
-#         "message":    msg,
-#         "transition": transition,
-#         "vendor":     vendor_public_dict(v),
-#         "expires_at": str(v.subscription_expires_at),
-#     }), 200
+    return jsonify({
+        "success":    True,
+        "message":    msg,
+        "transition": transition,
+        "vendor":     vendor_public_dict(v),
+        "expires_at": str(v.subscription_expires_at),
+    }), 200
 
 
 # ── RAZORPAY WEBHOOK ──────────────────────────────────────────────────────────
-# @vendor_auth_bp.route("/webhook/razorpay", methods=["POST"])
-# def razorpay_webhook():
-#     """
-#     Razorpay calls this directly when payment succeeds.
-#     Uses the same 4-case transition logic as /payment/verify.
-#     Safe to run even if /payment/verify already processed it.
-#     """
-#     webhook_secret = current_app.config.get("RAZORPAY_WEBHOOK_SECRET", "")
-#     received_sig   = request.headers.get("X-Razorpay-Signature", "")
-#     body           = request.get_data()
+@vendor_auth_bp.route("/webhook/razorpay", methods=["POST"])
+def razorpay_webhook():
+    """
+    Razorpay calls this directly when payment succeeds.
+    Uses the same 4-case transition logic as /payment/verify.
+    Safe to run even if /payment/verify already processed it.
+    """
+    webhook_secret = current_app.config.get("RAZORPAY_WEBHOOK_SECRET", "")
+    received_sig   = request.headers.get("X-Razorpay-Signature", "")
+    body           = request.get_data()
 
-#     expected_sig = hmac.new(
-#         key=webhook_secret.encode("utf-8"), msg=body, digestmod=hashlib.sha256
-#     ).hexdigest()
+    expected_sig = hmac.new(
+        key=webhook_secret.encode("utf-8"), msg=body, digestmod=hashlib.sha256
+    ).hexdigest()
 
-#     if not hmac.compare_digest(expected_sig, received_sig):
-#         return jsonify({"success": False, "message": "Invalid signature."}), 400
+    if not hmac.compare_digest(expected_sig, received_sig):
+        return jsonify({"success": False, "message": "Invalid signature."}), 400
 
-#     payload = request.get_json()
-#     if payload.get("event") != "payment.captured":
-#         return jsonify({"success": True, "message": "Event ignored."}), 200
+    payload = request.get_json()
+    if payload.get("event") != "payment.captured":
+        return jsonify({"success": True, "message": "Event ignored."}), 200
 
-#     order_id = payload["payload"]["payment"]["entity"]["order_id"]
-#     payment  = VendorPayment.query.filter_by(razorpay_order_id=order_id, status="created").first()
-#     if not payment:
-#         return jsonify({"success": True, "message": "Already processed."}), 200
+    order_id = payload["payload"]["payment"]["entity"]["order_id"]
+    payment  = VendorPayment.query.filter_by(razorpay_order_id=order_id, status="created").first()
+    if not payment:
+        return jsonify({"success": True, "message": "Already processed."}), 200
 
-#     now = datetime.utcnow()
-#     payment.razorpay_payment_id = payload["payload"]["payment"]["entity"]["id"]
-#     payment.status  = "paid"
-#     payment.paid_at = now
+    now = datetime.utcnow()
+    payment.razorpay_payment_id = payload["payload"]["payment"]["entity"]["id"]
+    payment.status  = "paid"
+    payment.paid_at = now
 
-#     v = Vendor.query.get(payment.vendor_id)
-#     if v:
-#         new_plan     = payment.plan
-#         new_rank     = PLAN_RANK.get(new_plan, 0)
-#         current_plan = v.effective_plan_name()
-#         current_rank = PLAN_RANK.get(current_plan, 0)
+    v = Vendor.query.get(payment.vendor_id)
+    if v:
+        new_plan     = payment.plan
+        new_rank     = PLAN_RANK.get(new_plan, 0)
+        current_plan = v.effective_plan_name()
+        current_rank = PLAN_RANK.get(current_plan, 0)
 
-#         plan_is_active = (
-#             v.subscription_expires_at is not None and
-#             v.subscription_expires_at > now and
-#             current_plan not in ("free", "trial")
-#         )
+        plan_is_active = (
+            v.subscription_expires_at is not None and
+            v.subscription_expires_at > now and
+            current_plan not in ("free")
+        )
 
-#         if not plan_is_active:
-#             v.subscription_plan       = new_plan
-#             v.subscription_expires_at = now + timedelta(days=payment.duration_days)
-#             v.pending_plan            = None
-#             reactivate = True
-#             payment.period_start = now
-#             payment.period_end   = v.subscription_expires_at
-#         elif new_rank > current_rank:
-#             old_expiry           = v.subscription_expires_at
-#             v.pending_plan       = new_plan
-#             payment.period_start = old_expiry
-#             payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
-#             reactivate = False
-#         elif new_rank == current_rank:
-#             v.subscription_plan       = new_plan
-#             v.subscription_expires_at = v.subscription_expires_at + timedelta(days=payment.duration_days)
-#             v.pending_plan            = None
-#             reactivate = True
-#             payment.period_start = v.subscription_expires_at - timedelta(days=payment.duration_days)
-#             payment.period_end   = v.subscription_expires_at
-#         else:
-#             old_expiry           = v.subscription_expires_at
-#             v.pending_plan       = new_plan
-#             payment.period_start = old_expiry
-#             payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
-#             reactivate = False
+        if not plan_is_active:
+            v.subscription_plan       = new_plan
+            v.subscription_expires_at = now + timedelta(days=payment.duration_days)
+            v.pending_plan            = None
+            reactivate = True
+            payment.period_start = now
+            payment.period_end   = v.subscription_expires_at
+        elif new_rank > current_rank:
+            old_expiry           = v.subscription_expires_at
+            v.pending_plan       = new_plan
+            payment.period_start = old_expiry
+            payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
+            reactivate = False
+        elif new_rank == current_rank:
+            v.subscription_plan       = new_plan
+            v.subscription_expires_at = v.subscription_expires_at + timedelta(days=payment.duration_days)
+            v.pending_plan            = None
+            reactivate = True
+            payment.period_start = v.subscription_expires_at - timedelta(days=payment.duration_days)
+            payment.period_end   = v.subscription_expires_at
+        else:
+            old_expiry           = v.subscription_expires_at
+            v.pending_plan       = new_plan
+            payment.period_start = old_expiry
+            payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
+            reactivate = False
 
-#         if reactivate:
-#             Product.query.filter_by(
-#                 vendor_id=v.id, is_active=False, deactivated_by="plan_expired"
-#             ).update({"is_active": True, "deactivated_by": None})
+        if reactivate:
+            Product.query.filter_by(
+                vendor_id=v.id, is_active=False, deactivated_by="plan_expired"
+            ).update({"is_active": True, "deactivated_by": None})
 
-#     db.session.commit()
-#     return jsonify({"success": True}), 200
+    db.session.commit()
+    return jsonify({"success": True}), 200
 
-# @vendor_auth_bp.route("/billing", methods=["GET"])
-# @limiter.limit("30 per minute")
-# @jwt_required()
-# def get_billing():
-#     vendor_id = int(get_jwt_identity())
-#     now = datetime.utcnow()
+@vendor_auth_bp.route("/billing", methods=["GET"])
+@limiter.limit("30 per minute")
+@jwt_required()
+def get_billing():
+    vendor_id = int(get_jwt_identity())
+    now = datetime.utcnow()
 
-#     all_payments = VendorPayment.query.filter_by(
-#         vendor_id=vendor_id, status="paid"
-#     ).order_by(VendorPayment.period_start.asc()).all()
+    all_payments = VendorPayment.query.filter_by(
+        vendor_id=vendor_id, status="paid"
+    ).order_by(VendorPayment.period_start.asc()).all()
 
-#     history = []
-#     past_added = 0
+    history = []
+    past_added = 0
 
-#     for p in all_payments:
-#         period_end = p.period_end
-#         period_start = p.period_start
+    for p in all_payments:
+        period_end = p.period_end
+        period_start = p.period_start
 
-#         is_current = period_start and period_end and period_start <= now <= period_end
-#         is_future  = period_start and period_start > now
-#         is_past    = period_end and period_end < now
+        is_current = period_start and period_end and period_start <= now <= period_end
+        is_future  = period_start and period_start > now
+        is_past    = period_end and period_end < now
 
-#         # Only include: last 1 past, current, all future
-#         if is_past:
-#             past_added += 1
-#             # We'll filter to only last 1 past after loop
+        # Only include: last 1 past, current, all future
+        if is_past:
+            past_added += 1
+            # We'll filter to only last 1 past after loop
         
-#         history.append({
-#             "plan":         p.plan,
-#             "amount_inr":   str(p.amount_inr),
-#             "period_start": str(period_start) if period_start else None,
-#             "period_end":   str(period_end)   if period_end   else None,
-#             "paid_at":      str(p.paid_at)    if p.paid_at    else None,
-#             "is_current":   is_current,
-#             "is_future":    is_future,
-#             "is_past":      is_past,
-#         })
+        history.append({
+            "plan":         p.plan,
+            "amount_inr":   str(p.amount_inr),
+            "period_start": str(period_start) if period_start else None,
+            "period_end":   str(period_end)   if period_end   else None,
+            "paid_at":      str(p.paid_at)    if p.paid_at    else None,
+            "is_current":   is_current,
+            "is_future":    is_future,
+            "is_past":      is_past,
+        })
 
-#     # Keep only last 1 past + current + all future
-#     past_seen = 0
-#     filtered = []
-#     for item in reversed(history):
-#         if item["is_past"]:
-#             if past_seen < 1:
-#                 filtered.append(item)
-#                 past_seen += 1
-#         else:
-#             filtered.append(item)
+    # Keep only last 1 past + current + all future
+    past_seen = 0
+    filtered = []
+    for item in reversed(history):
+        if item["is_past"]:
+            if past_seen < 1:
+                filtered.append(item)
+                past_seen += 1
+        else:
+            filtered.append(item)
 
-#     filtered = list(reversed(filtered))
+    filtered = list(reversed(filtered))
 
-#     return jsonify({"success": True, "billing": filtered}), 200
+    return jsonify({"success": True, "billing": filtered}), 200

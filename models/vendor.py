@@ -13,20 +13,15 @@ from extensions import db
 # badge: shown next to vendor/product on frontend ("verified" = blue tick style,
 #        "featured" = gold/star style). None = no badge.
 PLAN_LIMITS = {
-    "trial": {"max_active_posts": 3,  "priority_score": 0, "badge": None,
-                "label": "Free Trial",  "price": 0},
-    "free":  {"max_active_posts": 1,  "priority_score": 0, "badge": None,
-                "label": "Free",        "price": 0},
-    "starter": {"max_active_posts": 15, "priority_score": 1, "badge": None,
-                "label": "Starter",      "price": 249},
-    "growth":  {"max_active_posts": 30, "priority_score": 2, "badge": "verified",
-                "label": "Growth",       "price": 599},
+    "free":    {"max_active_posts": 5,    "priority_score": 0, "badge": None,
+                "label": "Free",          "price": 0},
+    "starter": {"max_active_posts": 10,   "priority_score": 1, "badge": None,
+                "label": "Starter",       "price": 249},
+    "growth":  {"max_active_posts": 20,   "priority_score": 2, "badge": "verified",
+                "label": "Growth",        "price": 449},
     "premium": {"max_active_posts": None, "priority_score": 3, "badge": "featured",
-                "label": "Premium",      "price": 999},  # None = unlimited
+                "label": "Premium",       "price": 999},
 }
-
-TRIAL_DURATION_DAYS = 7
-
 
 class Vendor(db.Model):
     __tablename__ = "vendors"
@@ -68,15 +63,12 @@ class Vendor(db.Model):
     suspended_reason = db.Column(db.String(50), nullable=True)  # e.g. "strikes"
 
     # ── Subscription ──────────────────────────────────────────────────────────
-    # trial = 7-day free trial (1 active post)
-    # free = expired/no plan (3 active posts, no badge, lowest ranking)
     # starter / growth / premium = paid tiers, see PLAN_LIMITS above
     subscription_plan = db.Column(
-        db.Enum("trial", "free", "starter", "growth", "premium"),
-        default="trial",
+        db.Enum("free", "starter", "growth", "premium"),
+        default="free",
         nullable=False
     )
-    # For trial: when the 7-day trial ends.
     # For paid plans: when the current billing cycle ends.
     subscription_expires_at = db.Column(db.DateTime, nullable=True)
     pending_plan = db.Column(db.String(20), nullable=True)
@@ -92,14 +84,14 @@ class Vendor(db.Model):
         """Returns the PLAN_LIMITS dict for this vendor's current effective plan.
         If a paid/trial plan has expired, treat as 'free' until renewed."""
         plan = self.subscription_plan or "free"
-        if plan in ("trial", "starter", "growth", "premium"):
+        if plan in ("starter", "growth", "premium"):
             if self.subscription_expires_at is None or datetime.utcnow() > self.subscription_expires_at:
                 plan = "free"
         return PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
 
     def effective_plan_name(self):
         plan = self.subscription_plan or "free"
-        if plan in ("trial", "starter", "growth", "premium"):
+        if plan in ("starter", "growth", "premium"):
             if self.subscription_expires_at is None or datetime.utcnow() > self.subscription_expires_at:
                 return "free"
         return plan
@@ -107,13 +99,6 @@ class Vendor(db.Model):
     def is_subscription_active(self):
         """True only for a currently-paid (non-trial, non-free) active plan."""
         if self.subscription_plan not in ("starter", "growth", "premium"):
-            return False
-        if self.subscription_expires_at is None:
-            return False
-        return datetime.utcnow() < self.subscription_expires_at
-
-    def is_trial_active(self):
-        if self.subscription_plan != "trial":
             return False
         if self.subscription_expires_at is None:
             return False
@@ -134,46 +119,35 @@ class Vendor(db.Model):
         return self.plan_config()["priority_score"]
 
     def max_active_posts(self):
-        # """None = unlimited."""
-        # return self.plan_config()["max_active_posts"]
-        return None
-    # def days_until_expiry(self):
-    #     """Returns days left on current paid/trial plan. None if on free (no expiry)."""
-    #     if self.subscription_plan == "free":
-    #         return None
-    #     if not self.subscription_expires_at:
-    #         return None
-    #     delta = self.subscription_expires_at - datetime.utcnow()
-    #     return max(0, delta.days)
+        return self.plan_config()["max_active_posts"]
+    def days_until_expiry(self):
+        if self.subscription_plan == "free":
+            return None
+        if not self.subscription_expires_at:
+            return None
+        delta = self.subscription_expires_at - datetime.utcnow()
+        return max(0, delta.days)
 
-    # def should_show_expiry_banner(self):
-    #     """True if plan expires in 5 days or less."""
-    #     days = self.days_until_expiry()
-    #     if days is None:
-    #         return False
-    #     return days <= 5
+    def should_show_expiry_banner(self):
+        days = self.days_until_expiry()
+        if days is None:
+            return False
+        return days <= 5
 
     def active_product_count(self):
         return Product.query.filter_by(vendor_id=self.id, is_active=True).count()
 
     def can_add_product(self):
-        # """Returns (True, None) if vendor can activate a new product,
-        # (False, error_message) otherwise."""
-        # limit = self.max_active_posts()
-        # if limit is None:
-        #     return True, None
-        # current = self.active_product_count()
-        # if current >= limit:
-        #     return False, (
-        #         f"You've reached your plan's limit of {limit} active posts. "
-        #         f"Upgrade your plan to list more."
-        #     )
+        limit = self.max_active_posts()
+        if limit is None:
+            return True, None
+        current = self.active_product_count()
+        if current >= limit:
+            return False, (
+                f"You've reached your plan's limit of {limit} active posts. "
+                f"Upgrade your plan to list more."
+            )
         return True, None
-
-    @staticmethod
-    def start_trial_expiry():
-        return datetime.utcnow() + timedelta(days=TRIAL_DURATION_DAYS)
-
 
 class VendorVerificationToken(db.Model):
     """Magic link tokens for vendor email verification"""
