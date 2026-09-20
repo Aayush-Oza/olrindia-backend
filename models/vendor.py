@@ -217,7 +217,6 @@ class Product(db.Model):
     category = db.Column(db.Enum(
         "Construction Equipment",
         "Furniture & Home Appliances",
-        "Party & Celebration Decor",
         "Photography & Content Creator Gear",
         "Events & Weddings",
         "Fashion & Designer Wear",
@@ -236,7 +235,6 @@ class Product(db.Model):
         "Warehouse & Storage",
         "Cargo & Shipping",
         "Machineries",
-        "Residential Properties",
         "Musical Instruments",
     ), nullable=False)
 
@@ -374,6 +372,7 @@ PRODUCT_CATEGORIES = {
         "Road Roller / Compactor",
         "Generator (site use)",
         "Dump Truck / Tipper"
+        "Portable Cabins"
     ],
 
     "Furniture & Home Appliances": [
@@ -385,17 +384,6 @@ PRODUCT_CATEGORIES = {
         "Washing Machine",
         "Air Conditioner",
         "Television"
-    ],
-
-    "Party & Celebration Decor": [
-        "Balloon Arch + Column Setup",
-        "Photo Booth + Backdrop",
-        "LED Letter & Number Lights",
-        "Throne / King Queen Chairs",
-        "Chocolate Fountain / Candy Cart",
-        "Fog / Bubble Machine",
-        "Bounce Castle / Soft Play Zone",
-        "Neon Sign (custom)"
     ],
 
     "Photography & Content Creator Gear": [
@@ -572,16 +560,6 @@ PRODUCT_CATEGORIES = {
         "Hydraulic Press",
         "Industrial Weighing Scale",
         "Injection Moulding Machine"
-    ],
-
-    "Residential Properties": [
-        "1BHK Apartment",
-        "2BHK Apartment",
-        "Studio / Bachelor Flat",
-        "PG / Paying Guest Room",
-        "Co-living Room",
-        "Service Apartment (furnished, short-stay)",
-        "Villa / Independent House"
     ],
     
     "Musical Instruments": [
