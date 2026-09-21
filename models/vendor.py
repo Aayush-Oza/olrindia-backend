@@ -236,6 +236,7 @@ class Product(db.Model):
         "Cargo & Shipping",
         "Machineries",
         "Musical Instruments",
+        "Office and Business Essentials"
     ), nullable=False)
 
     subcategory = db.Column(db.String(100), nullable=True)
@@ -570,6 +571,15 @@ PRODUCT_CATEGORIES = {
         "Violin",
         "Flute",
         "Saxophone"
+    ],
+    "Office and Business Essentials": [
+        "Laptop / MacBook",
+        "Projector & Screen",
+        "Printer / Scanner",
+        "DSLR / Webcam (video calls)",
+        "Standing Desk",
+        "Ergonomic Chair",
+        "Whiteboard / Flipchart"
     ]
 }
 
