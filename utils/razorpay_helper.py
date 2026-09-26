@@ -59,3 +59,11 @@ def verify_signature(order_id: str, payment_id: str, signature: str) -> bool:
     except Exception as e:
         current_app.logger.error(f"Razorpay verify_signature failed: {e}")
         return False
+    
+def fetch_payment(payment_id):
+    try:
+        client = get_razorpay_client()
+        return client.payment.fetch(payment_id)
+    except Exception as e:
+        current_app.logger.error(f"Razorpay fetch_payment failed: {e}")
+        return None

@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify, make_response
 from flask_jwt_extended import jwt_required, get_jwt_identity, unset_jwt_cookies
 from datetime import datetime, timedelta
 from models.payment import VendorPayment
-from utils.razorpay_helper import create_order, verify_signature
+from utils.razorpay_helper import create_order, verify_signature, fetch_payment
 from extensions import db
 from models.vendor import (
     Vendor, VendorVerificationToken, VendorPasswordResetToken,
@@ -656,7 +656,25 @@ def subscribe():
 
     plan_info  = PLAN_LIMITS[plan]
     amount_inr = plan_info["price"]
+    if v.pending_plan is not None:
+        return jsonify({"success": False, "message": f"You already have a plan change to {v.pending_plan.capitalize()} scheduled. Please wait until it activates."}), 409
 
+    # reuse or cancel any already-open order for this vendor
+    existing = VendorPayment.query.filter_by(vendor_id=vendor_id, status="created").order_by(VendorPayment.id.desc()).first()
+    if existing:
+        if existing.plan == plan:
+            plan_info = PLAN_LIMITS[plan]
+            return jsonify({
+                "success": True, "order_id": existing.razorpay_order_id,
+                "amount": int(existing.amount_inr) * 100, "currency": "INR",
+                "key_id": current_app.config["RAZORPAY_KEY_ID"],
+                "vendor": {"name": v.name, "email": v.email},
+                "plan_label": plan_info["label"], "reused_existing_order": True,
+            }), 200
+        else:
+            existing.status = "cancelled"
+            db.session.commit()
+            
     order = create_order(amount_inr, plan, vendor_id)
     if not order:
         return jsonify({"success": False, "message": "Could not initiate payment. Please try again."}), 500
@@ -718,7 +736,7 @@ def verify_payment():
 
     payment = VendorPayment.query.filter_by(
         razorpay_order_id=order_id, vendor_id=vendor_id, status="created"
-    ).first()
+    ).with_for_update().first()
     if not payment:
         return jsonify({"success": False, "message": "Order not found or already processed."}), 404
 
@@ -726,6 +744,13 @@ def verify_payment():
         payment.status = "failed"
         db.session.commit()
         return jsonify({"success": False, "message": "Payment verification failed. Please contact support."}), 400
+
+    razorpay_payment = fetch_payment(payment_id)
+    expected_paise = int(payment.amount_inr) * 100
+    if not razorpay_payment or razorpay_payment.get("amount") != expected_paise:
+        payment.status = "failed"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Amount mismatch. Please contact support."}), 400
 
     # ── Signature valid ───────────────────────────────────────────────────────
     now = datetime.utcnow()
@@ -842,9 +867,16 @@ def razorpay_webhook():
         return jsonify({"success": True, "message": "Event ignored."}), 200
 
     order_id = payload["payload"]["payment"]["entity"]["order_id"]
-    payment  = VendorPayment.query.filter_by(razorpay_order_id=order_id, status="created").first()
+    payment  = VendorPayment.query.filter_by(razorpay_order_id=order_id, status="created").with_for_update().first()
     if not payment:
         return jsonify({"success": True, "message": "Already processed."}), 200
+
+    payment_entity = payload["payload"]["payment"]["entity"]
+    expected_paise = int(payment.amount_inr) * 100
+    if payment_entity.get("amount") != expected_paise:
+        payment.status = "failed"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Amount mismatch."}), 400
 
     now = datetime.utcnow()
     payment.razorpay_payment_id = payload["payload"]["payment"]["entity"]["id"]

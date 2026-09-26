@@ -27,11 +27,7 @@ class VendorPayment(db.Model):
     # "created" → order made but payment not done yet
     # "paid"    → payment verified and plan activated
     # "failed"  → payment failed on Razorpay side
-    status          = db.Column(
-        db.Enum("created", "paid", "failed"),
-        default="created",
-        nullable=False
-    )
+    status = db.Column(db.Enum("created", "paid", "failed", "cancelled", "superseded"), default="created", nullable=False)
     # Add these two columns to VendorPayment class
     period_start    = db.Column(db.DateTime, nullable=True)   # When this plan period starts
     period_end      = db.Column(db.DateTime, nullable=True)   # When this plan period ends
