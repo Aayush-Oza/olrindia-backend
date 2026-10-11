@@ -16,6 +16,8 @@ from utils.email import send_verification_email, send_password_reset_email
 from utils.token import generate_tokens, generate_access_token,_is_mobile
 from utils.firebase_auth import verify_google_token
 from utils.s3 import compress_and_upload, delete_from_s3
+from utils.fcm import send_chat_notification
+from models.user import User
 from firebase_admin import auth as fb_auth
 import utils.firebase_auth
 import hmac
@@ -983,3 +985,32 @@ def get_billing():
     filtered = list(reversed(filtered))
 
     return jsonify({"success": True, "billing": filtered}), 200
+
+@vendor_auth_bp.route("/chat/notify", methods=["POST"])
+@jwt_required()
+def notify_chat():
+    import firebase_admin.firestore
+    data     = request.get_json() or {}
+    conv_id  = data.get('conv_id', '')
+    text     = data.get('text', '')
+    sender_role = data.get('sender_role', '')
+    if not conv_id or not text:
+        return jsonify({'success': False}), 400
+
+    db_fs = firebase_admin.firestore.client()
+    conv  = db_fs.collection('conversations').document(conv_id).get().to_dict()
+    if not conv:
+        return jsonify({'success': False}), 404
+
+    if sender_role == 'user':
+        vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
+        v = Vendor.query.get(vendor_id)
+        if v and v.fcm_token:
+            send_chat_notification(v.fcm_token, conv.get('user_name') or 'User', text, conv_id)
+    else:
+        user_id = int(conv.get('user_uid', '0').replace('user_', ''))
+        u = User.query.get(user_id)
+        if u and u.fcm_token:
+            send_chat_notification(u.fcm_token, conv.get('vendor_name') or 'Vendor', text, conv_id)
+
+    return jsonify({'success': True}), 200

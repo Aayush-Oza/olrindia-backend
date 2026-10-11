@@ -75,6 +75,9 @@ class Vendor(db.Model):
     # ── Social Login ──────────────────────────────────────────────────────────
     google_id = db.Column(db.String(200), unique=True, nullable=True)
 
+    # ── FCM ───────────────────────────────────────────────────────────────────
+    fcm_token = db.Column(db.String(500), nullable=True)
+    
     # ── Timestamps ────────────────────────────────────────────────────────────
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
