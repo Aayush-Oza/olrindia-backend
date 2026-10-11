@@ -988,7 +988,7 @@ def get_billing():
 
 @vendor_auth_bp.route("/chat/notify", methods=["POST"])
 @jwt_required()
-def notify_chat():
+def vendor_notify_chat():
     import firebase_admin.firestore
     data     = request.get_json() or {}
     conv_id  = data.get('conv_id', '')
@@ -1014,3 +1014,19 @@ def notify_chat():
             send_chat_notification(u.fcm_token, conv.get('vendor_name') or 'Vendor', text, conv_id)
 
     return jsonify({'success': True}), 200
+
+@vendor_auth_bp.route("/fcm-token", methods=["POST"])
+@limiter.limit("20 per minute")
+@jwt_required()
+def save_fcm_token():
+    vendor_id = int(get_jwt_identity())
+    v = Vendor.query.get(vendor_id)
+    if not v:
+        return jsonify({"success": False}), 404
+    data = request.get_json() or {}
+    token = data.get("fcm_token", "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "Missing token"}), 400
+    v.fcm_token = token
+    db.session.commit()
+    return jsonify({"success": True}), 200

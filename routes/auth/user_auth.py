@@ -678,7 +678,7 @@ def get_user_firebase_token():
     
 @user_auth_bp.route("/chat/notify", methods=["POST"])
 @jwt_required()
-def notify_chat():
+def user_notify_chat():
     import firebase_admin.firestore
     data     = request.get_json() or {}
     conv_id  = data.get('conv_id', '')
@@ -704,3 +704,19 @@ def notify_chat():
             send_chat_notification(u.fcm_token, conv.get('vendor_name') or 'Vendor', text, conv_id)
 
     return jsonify({'success': True}), 200
+
+@user_auth_bp.route("/fcm-token", methods=["POST"])
+@limiter.limit("20 per minute")
+@jwt_required()
+def save_user_fcm_token():
+    user_id = int(get_jwt_identity())
+    u = User.query.get(user_id)
+    if not u:
+        return jsonify({"success": False}), 404
+    data = request.get_json() or {}
+    token = data.get("fcm_token", "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "Missing token"}), 400
+    u.fcm_token = token
+    db.session.commit()
+    return jsonify({"success": True}), 200
