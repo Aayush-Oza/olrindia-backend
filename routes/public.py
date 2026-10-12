@@ -144,3 +144,46 @@ def assetlinks():
         }
     }]
     return jsonify(data)
+
+@public_bp.route("/categories", methods=["GET"])
+@limiter.limit("60 per minute")
+def get_categories():
+    from models.vendor import PRODUCT_CATEGORIES
+    
+    CATEGORY_EMOJIS = {
+        'Construction Equipment':              '🏗️',
+        'Furniture & Home Appliances':         '🛋️',
+        'Photography & Content Creator Gear':  '📷',
+        'Events & Weddings':                   '🎉',
+        'Fashion & Designer Wear':             '👗',
+        'Agricultural Equipment':              '🌾',
+        'Passenger Vehicles':                  '🚗',
+        'Bikes & Scooters':                    '🏍️',
+        'Medical Equipment':                   '🩺',
+        'Baby & Kids Gear':                    '🍼',
+        'Adventure & Trekking Gear':           '⛺',
+        'Sports & Fitness Equipment':          '🏋️',
+        'Electrical & Power Tools':            '⚡',
+        'Commercial Vehicles':                 '🚛',
+        'Tools & Tackles':                     '🛠️',
+        'Properties':                          '🏢',
+        'Industrial Equipment':                '⚙️',
+        'Warehouse & Storage':                 '🏭',
+        'Cargo & Shipping':                    '📦',
+        'Machineries':                         '🔧',
+        'Musical Instruments':                 '🎸',
+        'Office and Business Essentials':      '💼',
+    }
+    
+    categories = [
+        {
+            'name': cat,
+            'emoji': CATEGORY_EMOJIS.get(cat, '📦')
+        }
+        for cat in PRODUCT_CATEGORIES.keys()
+    ]
+    
+    return jsonify({
+        "success": True,
+        "categories": categories
+    }), 200
