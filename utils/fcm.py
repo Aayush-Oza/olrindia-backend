@@ -1,4 +1,4 @@
-# backend/utils/fcm.py
+import time
 import requests
 from google.oauth2 import service_account
 import google.auth.transport.requests
@@ -6,6 +6,7 @@ import google.auth.transport.requests
 _SERVICE_ACCOUNT_FILE = 'firebase-service-account.json'
 _SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
 _PROJECT_ID = 'olrindia-42b50'
+_notify_cache = {}
 
 def _get_access_token():
     creds = service_account.Credentials.from_service_account_file(
@@ -13,26 +14,50 @@ def _get_access_token():
     creds.refresh(google.auth.transport.requests.Request())
     return creds.token
 
-def send_chat_notification(fcm_token: str, sender_name: str, text: str, conv_id: str):
-    """Send a chat push notification via FCM v1 API."""
+def send_chat_notification(fcm_token: str, sender_name: str, text: str, conv_id: str, sender_photo: str = None):
+    # Dedup — same conv+text within 3 seconds = skip (prevents web+app double notify)
+    cache_key = f"{conv_id}:{text[:30]}"
+    now = time.time()
+    if _notify_cache.get(cache_key, 0) > now - 3:
+        return
+    _notify_cache[cache_key] = now
+
     if not fcm_token:
         return
     try:
         access_token = _get_access_token()
         url = f'https://fcm.googleapis.com/v1/projects/{_PROJECT_ID}/messages:send'
+        
+        android_notif = {
+            'tag': conv_id,          # same conv replaces old notification
+            'channel_id': 'olr_chat',
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        }
+        if sender_photo:
+            android_notif['image'] = sender_photo  # profile photo in notification
+
         payload = {
             'message': {
                 'token': fcm_token,
                 'notification': {
                     'title': sender_name,
                     'body': text[:100],
+                    'image': sender_photo or '',   # profile photo (iOS + Android)
                 },
                 'data': {
                     'type': 'chat',
                     'conv_id': conv_id,
                 },
-                'android': {'priority': 'high'},
-                'apns': {'headers': {'apns-priority': '10'}},
+                'android': {
+                    'priority': 'high',
+                    'notification': android_notif,
+                },
+                'apns': {
+                    'headers': {'apns-priority': '10'},
+                    'payload': {
+                        'aps': {'thread-id': conv_id}  # groups iOS notifications by conv
+                    }
+                },
             }
         }
         requests.post(

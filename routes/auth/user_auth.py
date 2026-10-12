@@ -696,13 +696,13 @@ def user_notify_chat():
         vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
         v = Vendor.query.get(vendor_id)
         if v and v.fcm_token:
-            send_chat_notification(v.fcm_token, conv.get('user_name') or 'User', text, conv_id)
+            send_chat_notification(v.fcm_token, conv.get('user_name') or 'User', text, conv_id, conv.get('user_photo'))
     else:
         user_id = int(conv.get('user_uid', '0').replace('user_', ''))
         u = User.query.get(user_id)
         if u and u.fcm_token:
-            send_chat_notification(u.fcm_token, conv.get('vendor_name') or 'Vendor', text, conv_id)
-
+            send_chat_notification(u.fcm_token, conv.get('vendor_name') or 'Vendor', text, conv_id, conv.get('vendor_photo'))
+            
     return jsonify({'success': True}), 200
 
 @user_auth_bp.route("/fcm-token", methods=["POST"])
