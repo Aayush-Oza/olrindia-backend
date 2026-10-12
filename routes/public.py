@@ -57,12 +57,23 @@ def get_public_products():
                 Product.category.ilike(f"%{search}%"),
             )
         )
-    if price_min > 0 or price_max is not None:
-        price_col = {"hour": Product.rent_per_hour, "km": Product.rent_per_km, "day": Product.rent_per_day, "month": Product.rent_per_month}.get(price_type, Product.rent_per_day)
-        if price_min > 0:
-            query = query.filter(price_col >= price_min)
-        if price_max is not None:
-            query = query.filter(price_col <= price_max)
+        price_col = {
+        "hour": Product.rent_per_hour,
+        "km": Product.rent_per_km,
+        "day": Product.rent_per_day,
+        "month": Product.rent_per_month
+    }.get(price_type)
+
+    if price_col is not None:
+        if price_min > 0 or price_max is not None:
+            # filter by range
+            if price_min > 0:
+                query = query.filter(price_col >= price_min)
+            if price_max is not None:
+                query = query.filter(price_col <= price_max)
+        else:
+            # period selected but no range — show only products that have this price type
+            query = query.filter(price_col.isnot(None))
 
     plan_order = case(
         (Vendor.subscription_plan == "premium", 0),
