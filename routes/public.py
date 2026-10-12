@@ -21,7 +21,7 @@ def get_public_products():
     per_page   = min(request.args.get("per_page", 20, type=int), 50)
     category   = request.args.get("category", "").strip()
     city       = request.args.get("city", "").strip().lower()
-    price_type = request.args.get("price_type", "day").strip()
+    price_type = request.args.get("price_type", "").strip()
     price_min  = request.args.get("price_min", 0, type=float)
     price_max  = request.args.get("price_max", None, type=float)
     search     = request.args.get("search", "").strip().lower()
@@ -57,24 +57,22 @@ def get_public_products():
                 Product.category.ilike(f"%{search}%"),
             )
         )
-        price_col = {
+    price_col_map = {
         "hour": Product.rent_per_hour,
         "km": Product.rent_per_km,
         "day": Product.rent_per_day,
         "month": Product.rent_per_month
-    }.get(price_type)
+    }
 
-    if price_col is not None:
+    if price_type and price_type in price_col_map:
+        price_col = price_col_map[price_type]
         if price_min > 0 or price_max is not None:
-            # filter by range
             if price_min > 0:
                 query = query.filter(price_col >= price_min)
             if price_max is not None:
                 query = query.filter(price_col <= price_max)
         else:
-            # period selected but no range — show only products that have this price type
             query = query.filter(price_col.isnot(None))
-
     plan_order = case(
         (Vendor.subscription_plan == "premium", 0),
         (Vendor.subscription_plan == "growth",  1),
