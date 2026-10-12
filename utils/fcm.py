@@ -29,12 +29,10 @@ def send_chat_notification(fcm_token: str, sender_name: str, text: str, conv_id:
         url = f'https://fcm.googleapis.com/v1/projects/{_PROJECT_ID}/messages:send'
         
         android_notif = {
-            'tag': conv_id,          # same conv replaces old notification
+            'tag': conv_id,         
             'channel_id': 'olr_chat',
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
         }
-        if sender_photo:
-            android_notif['image'] = sender_photo  # profile photo in notification
 
         payload = {
             'message': {
@@ -42,11 +40,12 @@ def send_chat_notification(fcm_token: str, sender_name: str, text: str, conv_id:
                 'notification': {
                     'title': sender_name,
                     'body': text[:100],
-                    'image': sender_photo or '',   # profile photo (iOS + Android)
                 },
                 'data': {
                     'type': 'chat',
                     'conv_id': conv_id,
+                    'sender_photo': sender_photo or '',
+
                 },
                 'android': {
                     'priority': 'high',
