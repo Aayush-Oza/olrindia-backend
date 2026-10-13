@@ -27,7 +27,7 @@ CATEGORY_IMAGES = {
     'Baby & Kids Gear':                   'BabyKidsGear.webp',
     'Adventure & Trekking Gear':          'AdventureTrekkingGear.webp',
     'Sports & Fitness Equipment':         'SportsFitnessEquipment.webp',
-    'Electrical & Power Tools':           'ProfessionalConstructionToolsDisplay.webp',            # no dedicated file, reuse
+    'Electrical & Power Tools':           'ProfessionalConstructionToolsDisplay.webp',
     'Commercial Vehicles':                'CommercialVehicles.webp',
     'Tools & Tackles':                    'ToolsTackles.webp',
     'Properties':                         'Properties.webp',
@@ -98,7 +98,6 @@ def get_categories():
             continue  # hide empty categories from slider
 
         filename  = CATEGORY_IMAGES.get(cat)
-        # URL-encode spaces so the link works in browsers & Flutter
         if filename:
             from urllib.parse import quote
             image_url = f"{BASE_URL}/static/categories/{quote(filename)}"
@@ -124,7 +123,7 @@ def get_public_products():
     page       = request.args.get("page",      1,    type=int)
     per_page   = min(request.args.get("per_page", 20, type=int), 50)
     category   = request.args.get("category",  "").strip()
-    city       = request.args.get("city",       "").strip().lower()
+    city       = request.args.get("city",       "").strip()
     price_type = request.args.get("price_type", "").strip()
     price_min  = request.args.get("price_min",  0,    type=float)
     price_max  = request.args.get("price_max",  None, type=float)
@@ -147,14 +146,18 @@ def get_public_products():
 
     if category:
         query = query.filter(Product.category == category)
+
+    # ── City filter: supports "Dahisar, Mumbai" — splits on comma and OR-matches
+    # each part against area, city, state so sub-locality products show up first
     if city:
-        query = query.filter(
-            db.or_(
-                Product.city.ilike(f"%{city}%"),
-                Product.area.ilike(f"%{city}%"),
-                Product.state.ilike(f"%{city}%"),
-            )
-        )
+        parts = [p.strip() for p in city.split(',') if p.strip()]
+        conditions = []
+        for part in parts:
+            conditions.append(Product.area.ilike(f"%{part}%"))
+            conditions.append(Product.city.ilike(f"%{part}%"))
+            conditions.append(Product.state.ilike(f"%{part}%"))
+        query = query.filter(db.or_(*conditions))
+
     if search:
         query = query.filter(
             db.or_(
