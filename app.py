@@ -94,9 +94,10 @@ def create_app(env=None):
             "relation": ["delegate_permission/common.handle_all_urls"],
             "target": {
                 "namespace": "android_app",
-                "package_name": "com.olr_india.app",
+                "package_name": "com.olrindia.app",
                 "sha256_cert_fingerprints": [
-                    "CB:90:41:16:37:05:4C:89:1A:9D:30:3C:89:EF:FC:27:C2:C1:53:06:9D:85:EE:1C:A1:1C:CD:6E:00:65:8B:A6"
+                    "CB:90:41:16:37:05:4C:89:1A:9D:30:3C:89:EF:FC:27:C2:C1:53:06:9D:85:EE:1C:A1:1C:CD:6E:00:65:8B:A6",
+                    "3A:E8:38:7D:7B:56:EC:D9:6A:3E:EE:59:09:FE:B6:FD:F2:D5:C8:4B:B2:72:E6:F4:4A:01:25:35:E6:7D:9E:17"
                 ]
             }
         }]
