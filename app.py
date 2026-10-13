@@ -101,7 +101,13 @@ def create_app(env=None):
                 ]
             }
         }]
-        return jsonify(data)
+        from flask import Response
+        import json
+        resp = Response(json.dumps(data), mimetype='application/json')
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
     
     # ── Health Check ──────────────────────────────────────────────────────────
     @app.route("/health", methods=["GET"])
