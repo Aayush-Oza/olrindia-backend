@@ -88,6 +88,19 @@ def create_app(env=None):
             "message": error
         }), 401
 
+    @app.route('/.well-known/assetlinks.json')
+    def assetlinks():
+        data = [{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.example.olr_india",
+                "sha256_cert_fingerprints": [
+                    "CB:90:41:16:37:05:4C:89:1A:9D:30:3C:89:EF:FC:27:C2:C1:53:06:9D:85:EE:1C:A1:1C:CD:6E:00:65:8B:A6"
+                ]
+            }
+        }]
+        return jsonify(data)
     # ── Health Check ──────────────────────────────────────────────────────────
     @app.route("/health", methods=["GET"])
     def health():

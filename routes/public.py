@@ -172,13 +172,21 @@ def get_public_products():
     }
     if price_type and price_type in price_col_map:
         price_col = price_col_map[price_type]
-        if price_min > 0 or price_max is not None:
+        query = query.filter(price_col.isnot(None))
+        if price_min > 0:
+            query = query.filter(price_col >= price_min)
+        if price_max is not None:
+            query = query.filter(price_col <= price_max)
+    elif price_min > 0 or price_max is not None:
+        conditions = []
+        for col in price_col_map.values():
+            col_filter = col.isnot(None)
             if price_min > 0:
-                query = query.filter(price_col >= price_min)
+                col_filter = db.and_(col_filter, col >= price_min)
             if price_max is not None:
-                query = query.filter(price_col <= price_max)
-        else:
-            query = query.filter(price_col.isnot(None))
+                col_filter = db.and_(col_filter, col <= price_max)
+            conditions.append(col_filter)
+        query = query.filter(db.or_(*conditions))
 
     plan_order = case(
         (Vendor.subscription_plan == "premium", 0),
@@ -230,23 +238,6 @@ def get_public_product(slug):
         "state":         v.state,
     }
     return jsonify({"success": True, "product": p.to_dict(), "vendor": vendor_data}), 200
-
-
-# ── Android asset links ───────────────────────────────────────────────────────
-@public_bp.route('/.well-known/assetlinks.json', methods=["GET"])
-def assetlinks():
-    data = [{
-        "relation": ["delegate_permission/common.handle_all_urls"],
-        "target": {
-            "namespace": "android_app",
-            "package_name": "com.example.olr_india",
-            "sha256_cert_fingerprints": [
-                "CB:90:41:16:37:05:4C:89:1A:9D:30:3C:89:EF:FC:27:C2:C1:53:06:9D:85:EE:1C:A1:1C:CD:6E:00:65:8B:A6"
-            ]
-        }
-    }]
-    return jsonify(data)
-
 
 # ── Known social-media crawler user-agents ────────────────────────────────────
 CRAWLER_UA_SUBSTRINGS = [
