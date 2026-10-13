@@ -15,8 +15,8 @@ BASE_URL = "https://olrindia.com"
 # Key   = category name (must match PRODUCT_CATEGORIES in models/vendor.py)
 # Value = filename inside static/categories/
 CATEGORY_IMAGES = {
-    'Construction Equipment':             'Professional Construction Tools Display.webp',
-    'Furniture & Home Appliances':        'Modern Showroom Living Space.webp',
+    'Construction Equipment':             'SunriseMachineryattheConstruction Site.webp',
+    'Furniture & Home Appliances':        'ModernShowroomLivingSpace.webp',
     'Photography & Content Creator Gear': 'PhotographyContentCreatorGear.webp',
     'Events & Weddings':                  'EventsWeddings.webp',
     'Fashion & Designer Wear':            'FashionDesignerWear.webp',
@@ -27,7 +27,7 @@ CATEGORY_IMAGES = {
     'Baby & Kids Gear':                   'BabyKidsGear.webp',
     'Adventure & Trekking Gear':          'AdventureTrekkingGear.webp',
     'Sports & Fitness Equipment':         'SportsFitnessEquipment.webp',
-    'Electrical & Power Tools':           'ToolsTackles.webp',            # no dedicated file, reuse
+    'Electrical & Power Tools':           'ProfessionalConstructionToolsDisplay.webp',            # no dedicated file, reuse
     'Commercial Vehicles':                'CommercialVehicles.webp',
     'Tools & Tackles':                    'ToolsTackles.webp',
     'Properties':                         'Properties.webp',
@@ -36,7 +36,7 @@ CATEGORY_IMAGES = {
     'Cargo & Shipping':                   'CargoShipping.webp',
     'Machineries':                        'Machineries.webp',
     'Musical Instruments':                'Musical Instruments.webp',
-    'Office and Business Essentials':     'Modern Office Essentials Showroom.webp',
+    'Office and Business Essentials':     'ModernOfficeEssentialsShowroom.webp',
 }
 
 CATEGORY_EMOJIS = {
