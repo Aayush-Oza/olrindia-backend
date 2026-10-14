@@ -46,5 +46,8 @@ flask-limiter
 
 #redis
 redis
+
+#language
+requests
 # ── SMS OTP (commented - enable when DLT registration is done) ───────────────
 # msg91==0.0.1                   # MSG91 SMS OTP - uncomment when DLT ready

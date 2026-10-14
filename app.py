@@ -3,12 +3,12 @@
 # Run with: gunicorn app:app (production on AWS EC2)
 
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify,request
 from flask_cors import CORS
 
 from config import config
 from extensions import db, jwt, migrate,limiter
-
+from utils.translate import translate_all_strings
 # ── Import Models (needed for flask db migrate to detect tables) ──────────────
 from models.user import User, UserVerificationToken, UserPasswordResetToken
 from models.vendor import Vendor, VendorVerificationToken, VendorPasswordResetToken
@@ -38,6 +38,20 @@ def create_app(env=None):
     jwt.init_app(app)
     migrate.init_app(app, db)
     limiter.init_app(app)
+    
+    @app.before_request
+    def auto_translate_input():
+        if request.method not in ('POST', 'PUT', 'PATCH'):
+            return
+        if not request.is_json:
+            return
+        try:
+            data = request.get_json(silent=True, force=True)
+            if data:
+                translated = translate_all_strings(data)
+                request._cached_json = (translated, translated)
+        except Exception:
+            pass
     # ── CORS Setup ────────────────────────────────────────────────────────────
     # Allow frontend to talk to backend
     # In production replace with actual domain
