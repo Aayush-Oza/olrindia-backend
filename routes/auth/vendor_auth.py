@@ -206,7 +206,18 @@ def refresh():
 
 # ── LOGOUT ────────────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/logout", methods=["POST"])
+@jwt_required(optional=True)
 def logout():
+    try:
+        identity = get_jwt_identity()
+        if identity:
+            vendor_id = int(identity) if isinstance(identity, (int, str)) else identity.get('id')
+            v = Vendor.query.get(vendor_id)
+            if v:
+                v.fcm_token = None
+                db.session.commit()
+    except Exception:
+        pass
     response = make_response(jsonify({"success": True, "message": "Logged out successfully."}), 200)
     cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/vendor/"
     response.delete_cookie("access_token_cookie",  path=cookie_path)

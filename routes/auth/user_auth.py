@@ -294,10 +294,21 @@ def refresh():
 
 # ── LOGOUT ────────────────────────────────────────────────────────────────────
 @user_auth_bp.route("/logout", methods=["POST"])
+@jwt_required(optional=True)
 def logout():
+    try:
+        identity = get_jwt_identity()
+        if identity:
+            user_id = int(identity) if isinstance(identity, (int, str)) else identity.get('id')
+            u = User.query.get(user_id)
+            if u:
+                u.fcm_token = None
+                db.session.commit()
+    except Exception:
+        pass
     response = make_response(jsonify({"success": True, "message": "Logged out successfully."}), 200)
     cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/user/"
-    response.delete_cookie("access_token_cookie", path=cookie_path)
+    response.delete_cookie("access_token_cookie",  path=cookie_path)
     response.delete_cookie("refresh_token_cookie", path=cookie_path)
     return response
 
