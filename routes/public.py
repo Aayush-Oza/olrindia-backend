@@ -1,19 +1,12 @@
 # backend/routes/public.py
-# OLR India - Public Routes
-# No auth required. Used by index page and public product pages.
-
 from flask import Blueprint, jsonify, json, request, redirect
 from extensions import db, limiter, cache
 from models.vendor import Product, Vendor, PRODUCT_CATEGORIES
 
 public_bp = Blueprint("public", __name__)
 
-# ── Change this to your actual domain ─────────────────────────────────────────
 BASE_URL = "https://olrindia.com"
 
-# ── Exact filenames as they exist in  backend/static/categories/ ──────────────
-# Key   = category name (must match PRODUCT_CATEGORIES in models/vendor.py)
-# Value = filename inside static/categories/
 CATEGORY_IMAGES = {
     'Construction Equipment':             'SunriseMachineryattheConstruction Site.webp',
     'Furniture & Home Appliances':        'ModernShowroomLivingSpace.webp',
@@ -65,19 +58,30 @@ CATEGORY_EMOJIS = {
 }
 
 
-# ── /api/products/categories ──────────────────────────────────────────────────
+# ── helper: clear all public cache keys ──────────────────────────────────────
+def clear_public_cache():
+    """Call this whenever a product or vendor changes."""
+    try:
+        keys = cache.keys("public:*")
+        if keys:
+            cache.delete(*keys)
+        cache.delete("categories")
+    except Exception:
+        pass
+
+
+# ── /products/categories ──────────────────────────────────────────────────────
 @public_bp.route("/categories", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_categories():
-    """
-    Returns only categories that have at least 1 active product.
-    Each item includes image_url served from this server's /static/categories/.
-    Flutter & web render the image from this URL — no assets bundled in app.
-    To change a category image: just replace the .webp file on server. Done.
-    """
-    from sqlalchemy import func
+    # Cache for 5 minutes — categories barely change
+    cached = cache.get("categories")
+    if cached:
+        return jsonify(json.loads(cached)), 200
 
-    # One query — count active products per category
+    from sqlalchemy import func
+    from urllib.parse import quote
+
     counts = (
         db.session.query(Product.category, func.count(Product.id))
         .join(Vendor, Product.vendor_id == Vendor.id)
@@ -95,15 +99,9 @@ def get_categories():
     for cat in PRODUCT_CATEGORIES.keys():
         cnt = count_map.get(cat, 0)
         if cnt == 0:
-            continue  # hide empty categories from slider
-
-        filename  = CATEGORY_IMAGES.get(cat)
-        if filename:
-            from urllib.parse import quote
-            image_url = f"{BASE_URL}/static/categories/{quote(filename)}"
-        else:
-            image_url = None
-
+            continue
+        filename = CATEGORY_IMAGES.get(cat)
+        image_url = f"{BASE_URL}/static/categories/{quote(filename)}" if filename else None
         categories.append({
             'name':          cat,
             'emoji':         CATEGORY_EMOJIS.get(cat, '📦'),
@@ -111,10 +109,12 @@ def get_categories():
             'product_count': cnt,
         })
 
-    return jsonify({"success": True, "categories": categories}), 200
+    response_data = {"success": True, "categories": categories}
+    cache.setex("categories", 300, json.dumps(response_data))  # 5 min
+    return jsonify(response_data), 200
 
 
-# ── /api/products/public  (index page + Flutter home) ─────────────────────────
+# ── /products/public ──────────────────────────────────────────────────────────
 @public_bp.route("/public", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_public_products():
@@ -147,8 +147,6 @@ def get_public_products():
     if category:
         query = query.filter(Product.category == category)
 
-    # ── City filter: supports "Dahisar, Mumbai" — splits on comma and OR-matches
-    # each part against area, city, state so sub-locality products show up first
     if city:
         parts = [p.strip() for p in city.split(',') if p.strip()]
         conditions = []
@@ -216,14 +214,20 @@ def get_public_products():
         "total":    total,
         "has_more": (page * per_page) < total,
     }
-    cache.setex(cache_key, 60, json.dumps(response_data))
+    cache.setex(cache_key, 60, json.dumps(response_data))  # 60 sec
     return jsonify(response_data), 200
 
 
-# ── /api/products/public/<slug> ───────────────────────────────────────────────
+# ── /products/public/<slug> ───────────────────────────────────────────────────
 @public_bp.route("/public/<string:slug>", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_public_product(slug):
+    # Cache individual product for 2 minutes
+    cache_key = f"product:{slug}"
+    cached = cache.get(cache_key)
+    if cached:
+        return jsonify(json.loads(cached)), 200
+
     p = Product.query.filter_by(share_slug=slug, is_active=True).first()
     if not p:
         return jsonify({"success": False, "message": "Product not found or no longer available."}), 404
@@ -240,9 +244,11 @@ def get_public_product(slug):
         "city":          v.city,
         "state":         v.state,
     }
-    return jsonify({"success": True, "product": p.to_dict(), "vendor": vendor_data}), 200
+    response_data = {"success": True, "product": p.to_dict(), "vendor": vendor_data}
+    cache.setex(cache_key, 120, json.dumps(response_data))  # 2 min
+    return jsonify(response_data), 200
 
-# ── Known social-media crawler user-agents ────────────────────────────────────
+
 CRAWLER_UA_SUBSTRINGS = [
     "whatsapp", "facebookexternalhit", "twitterbot", "linkedinbot",
     "slackbot", "telegrambot", "discordbot", "pinterest", "skypeuripreview",

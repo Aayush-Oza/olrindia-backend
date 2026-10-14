@@ -19,6 +19,7 @@ from utils.s3 import compress_and_upload, delete_from_s3
 from utils.fcm import send_chat_notification
 from models.user import User
 from firebase_admin import auth as fb_auth
+from routes.public import clear_public_cache
 import utils.firebase_auth
 import hmac
 import hashlib
@@ -493,6 +494,7 @@ def add_product():
     )
     db.session.add(p)
     db.session.commit()
+    clear_public_cache()
     return jsonify({"success": True, "message": "Product listed!", "product": p.to_dict()}), 201
 
 
@@ -532,6 +534,7 @@ def update_product(product_id):
         p.edit_deadline = None
     p.admin_reviewed = False
     db.session.commit()
+    clear_public_cache()
     return jsonify({"success": True, "message": "Product updated.", "product": p.to_dict()}), 200
 
 
@@ -559,6 +562,7 @@ def update_product_status(product_id):
     p.is_active = new_status
     p.last_availability_check = db.func.now()
     db.session.commit()
+    clear_public_cache()
     return jsonify({"success": True, "message": "Product status updated.", "product": p.to_dict()}), 200
 
 
@@ -616,6 +620,7 @@ def delete_product(product_id):
     for url in p.image_urls(): delete_from_s3(url)
     db.session.delete(p)
     db.session.commit()
+    clear_public_cache()
     return jsonify({"success": True, "message": "Product deleted."}), 200
 
 
