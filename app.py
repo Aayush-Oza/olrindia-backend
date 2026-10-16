@@ -28,7 +28,7 @@ def create_app(env=None):
     Application factory - creates and configures Flask app.
     """
     app = Flask(__name__)
-    app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+    app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
     # ── Load Config ───────────────────────────────────────────────────────────
     env = env or os.getenv("FLASK_ENV", "development")
     app.config.from_object(config[env])
