@@ -586,6 +586,31 @@ PRODUCT_CATEGORIES = {
     ]
 }
 
+CATEGORY_PRICING_FIELDS = {
+    "Passenger Vehicles":                 ["per_day", "per_km"],
+    "Bikes & Scooters":                   ["per_day", "per_km"],
+    "Commercial Vehicles":                ["per_day", "per_km"],
+    "Cargo & Shipping":                   ["per_day", "per_km"],
+    "Properties":                         ["per_hour", "per_day", "per_month"],
+    "Warehouse & Storage":                ["per_day", "per_month"],
+    "Events & Weddings":                  ["per_hour", "per_day"],
+    "Fashion & Designer Wear":            ["per_day"],
+    "Construction Equipment":             ["per_hour", "per_day"],
+    "Agricultural Equipment":             ["per_hour", "per_day"],
+    "Industrial Equipment":               ["per_hour", "per_day"],
+    "Machineries":                        ["per_hour", "per_day"],
+    "Electrical & Power Tools":           ["per_hour", "per_day"],
+    "Tools & Tackles":                    ["per_hour", "per_day"],
+    "Furniture & Home Appliances":        ["per_day", "per_month"],
+    "Photography & Content Creator Gear": ["per_hour", "per_day"],
+    "Medical Equipment":                  ["per_day", "per_month"],
+    "Baby & Kids Gear":                   ["per_day", "per_month"],
+    "Adventure & Trekking Gear":          ["per_day"],
+    "Sports & Fitness Equipment":         ["per_day", "per_month"],
+    "Musical Instruments":                ["per_hour", "per_day"],
+    "Office and Business Essentials":     ["per_hour", "per_day", "per_month"],
+}
+
 class VendorStrike(db.Model):
     """Log of every product removal / strike issued to a vendor.
     Kept even after unflagging, for admin history reference."""

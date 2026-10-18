@@ -437,7 +437,15 @@ def get_products():
 
 @vendor_auth_bp.route("/categories", methods=["GET"])
 def get_categories():
-    return jsonify({"success": True, "categories": PRODUCT_CATEGORIES}), 200
+    from models.vendor import CATEGORY_PRICING_FIELDS
+    categories = {
+        name: {
+            "subcategories": subcats,
+            "pricing_fields": CATEGORY_PRICING_FIELDS.get(name, ["per_day"])
+        }
+        for name, subcats in PRODUCT_CATEGORIES.items()
+    }
+    return jsonify({"success": True, "categories": categories}), 200
 
 @vendor_auth_bp.route("/plans", methods=["GET"])
 def get_plans():
