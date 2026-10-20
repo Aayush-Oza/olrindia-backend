@@ -436,7 +436,7 @@ def get_products():
             "plan": v.effective_plan_name(),
             "message": (
                 f"Your {v.effective_plan_name().capitalize()} plan expires in "
-                f"{v.days_until_expiry()} day(s)! Renew now to keep all listings active."
+                f"{v.expiry_label()}! Renew now to keep all listings active."
             ) if v.should_show_expiry_banner() else None
         }
     }), 200
