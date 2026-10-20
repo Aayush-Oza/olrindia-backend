@@ -123,19 +123,56 @@ class Vendor(db.Model):
 
     def max_active_posts(self):
         return self.plan_config()["max_active_posts"]
+    
     def days_until_expiry(self):
         if self.subscription_plan == "free":
             return None
         if not self.subscription_expires_at:
             return None
         delta = self.subscription_expires_at - datetime.utcnow()
-        return max(0, delta.days)
+        total_seconds = delta.total_seconds()
+        if total_seconds <= 0:
+            return 0
+        # Return fractional days so callers can distinguish < 1 day
+        return total_seconds / 86400
+
+    def hours_until_expiry(self):
+        if self.subscription_plan == "free":
+            return None
+        if not self.subscription_expires_at:
+            return None
+        delta = self.subscription_expires_at - datetime.utcnow()
+        total_seconds = delta.total_seconds()
+        if total_seconds <= 0:
+            return 0
+        return int(total_seconds // 3600)
+
+    def expiry_label(self):
+        """Human-readable label: '2 days left', '5 hours left', 'Expired'"""
+        if self.subscription_plan == "free":
+            return None
+        if not self.subscription_expires_at:
+            return None
+        delta = self.subscription_expires_at - datetime.utcnow()
+        total_seconds = delta.total_seconds()
+        if total_seconds <= 0:
+            return "Expired"
+        if total_seconds < 86400:
+            hours = int(total_seconds // 3600)
+            mins  = int((total_seconds % 3600) // 60)
+            if hours > 0:
+                return f"{hours} hour(s) left"
+            return f"{mins} minute(s) left"
+        days = int(total_seconds // 86400)
+        return f"{days} day(s) left"
 
     def should_show_expiry_banner(self):
-        days = self.days_until_expiry()
-        if days is None:
+        if self.subscription_plan == "free":
             return False
-        return days <= 5
+        if not self.subscription_expires_at:
+            return False
+        delta = self.subscription_expires_at - datetime.utcnow()
+        return delta.total_seconds() <= 5 * 86400  # 5 days
 
     def active_product_count(self):
         return Product.query.filter_by(vendor_id=self.id, is_active=True).count()
