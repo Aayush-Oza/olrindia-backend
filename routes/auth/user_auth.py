@@ -537,13 +537,17 @@ def update_profile():
             }), 409
 
         user.mobile = data["mobile"].strip()
-    if data.get("area"):    user.area    = data["area"].strip()
-    if data.get("city"):    user.city    = data["city"].strip()
-    if data.get("state"):   user.state   = data["state"].strip()
-    if data.get("pincode"):
-        if not data["pincode"].strip().isdigit() or len(data["pincode"].strip()) != 6:
-            return jsonify({"success": False, "message": "Enter a valid 6-digit pincode."}), 400
-        user.pincode = data["pincode"].strip()
+    if "pincode" in data:
+        pincode = (data["pincode"] or "").strip()
+        if pincode:
+            if not pincode.isdigit() or len(pincode) != 6:
+                return jsonify({"success": False, "message": "Enter a valid 6-digit pincode."}), 400
+            user.pincode = pincode
+        else:
+            user.pincode = None  # cleared manually — wipe stale pincode
+    if data.get("area"):          user.area          = data["area"].strip()
+    if data.get("city"):          user.city          = data["city"].strip()
+    if data.get("state"):         user.state         = data["state"].strip()
     db.session.commit()
     sync_identity_to_conversations('user', user.id, user.name, user.profile_photo)
     return jsonify({"success": True, "message": "Profile updated.", "user": {
