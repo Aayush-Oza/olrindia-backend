@@ -98,6 +98,8 @@ def register():
         mobile        = data["mobile"].strip()
         gst_number    = data.get("gst_number", "").strip() or None
         pincode       = data["pincode"].strip()
+        if pincode and (not pincode.isdigit() or len(pincode) != 6):
+            return jsonify({"success": False, "message": "Enter a valid 6-digit pincode."}), 400
         city          = data["city"].strip()
         state         = data["state"].strip()
         area          = data.get("area", "").strip() or None
@@ -365,7 +367,10 @@ def update_profile():
             return jsonify({"success": False, "message": "Mobile already linked to another account."}), 409
         v.mobile = data["mobile"].strip()
     if data.get("gst_number"):    v.gst_number    = data["gst_number"].strip()
-    if data.get("pincode"):       v.pincode       = data["pincode"].strip()
+    if data.get("pincode"):
+        if not data["pincode"].strip().isdigit() or len(data["pincode"].strip()) != 6:
+            return jsonify({"success": False, "message": "Enter a valid 6-digit pincode."}), 400
+        v.pincode = data["pincode"].strip()
     if data.get("area"):          v.area          = data["area"].strip()
     if data.get("city"):          v.city          = data["city"].strip()
     if data.get("state"):         v.state         = data["state"].strip()
