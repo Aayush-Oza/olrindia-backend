@@ -1064,3 +1064,88 @@ def save_fcm_token():
     v.fcm_token = token
     db.session.commit()
     return jsonify({"success": True}), 200
+
+# ── DELETE ACCOUNT ────────────────────────────────────────────
+@vendor_auth_bp.route("/delete-account", methods=["POST"])
+@limiter.limit("3 per hour")
+@jwt_required()
+def delete_vendor_account():
+    try:
+        vendor_id = int(get_jwt_identity())
+        v = Vendor.query.get(vendor_id)
+        if not v:
+            return jsonify({"success": False, "message": "Vendor not found."}), 404
+
+        data = request.get_json() or {}
+
+        # ── Google account ────────────────────────────────────────────────────
+        if v.google_id:
+            google_uid = data.get("google_uid", "").strip()
+            if not google_uid:
+                return jsonify({
+                    "success": False,
+                    "message": "Please re-authenticate with Google to confirm deletion."
+                }), 400
+            if google_uid != v.google_id:
+                return jsonify({
+                    "success": False,
+                    "message": "Google re-authentication failed. Please try again."
+                }), 401
+
+        # ── Password account ──────────────────────────────────────────────────
+        else:
+            password = data.get("password", "")
+            if not password:
+                return jsonify({
+                    "success": False,
+                    "message": "Please enter your password to confirm deletion."
+                }), 400
+            if not v.password_hash or not bcrypt.checkpw(
+                password.encode("utf-8"), v.password_hash.encode("utf-8")
+            ):
+                return jsonify({
+                    "success": False,
+                    "message": "Incorrect password."
+                }), 401
+
+        # ── Verified — proceed with deletion ──────────────────────────────────
+
+        # Delete all product S3 images then products
+        products = Product.query.filter_by(vendor_id=vendor_id).all()
+        for p in products:
+            for url in p.image_urls():
+                delete_from_s3(url)
+            db.session.delete(p)
+
+        if v.profile_photo:
+            delete_from_s3(v.profile_photo)
+
+        if v.google_id:
+            try:
+                fb_auth.delete_user(v.google_id)
+            except Exception:
+                pass
+
+        VendorVerificationToken.query.filter_by(vendor_id=vendor_id).delete()
+        VendorPasswordResetToken.query.filter_by(vendor_id=vendor_id).delete()
+        # VendorPayment + VendorStrike kept intentionally for records
+
+        db.session.delete(v)
+        db.session.commit()
+
+        cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/vendor/"
+        response = make_response(jsonify({
+            "success": True,
+            "message": "Your vendor account has been permanently deleted."
+        }), 200)
+        response.delete_cookie("access_token_cookie", path=cookie_path)
+        response.delete_cookie("refresh_token_cookie", path=cookie_path)
+        return response
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "message": "Account deletion failed.",
+            "error": str(e)
+        }), 500

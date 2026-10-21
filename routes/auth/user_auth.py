@@ -740,3 +740,94 @@ def save_user_fcm_token():
     u.fcm_token = token
     db.session.commit()
     return jsonify({"success": True}), 200
+
+# ── DELETE ACCOUNT ────────────────────────────────────────────
+@user_auth_bp.route("/delete-account", methods=["POST"])
+@limiter.limit("3 per hour")
+@jwt_required()
+def delete_user_account():
+    """
+    For password accounts  → verify password first, then delete.
+    For Google accounts    → frontend re-authenticates with Google,
+                             sends firebase_uid for server to verify,
+                             then delete.
+    Body (password account):  { "password": "..." }
+    Body (Google account):    { "google_uid": "user_123" }
+    """
+    try:
+        user_id = int(get_jwt_identity())
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"success": False, "message": "User not found."}), 404
+
+        data = request.get_json() or {}
+
+        # ── Google account: verify uid matches ───────────────────────────────
+        if user.google_id:
+            google_uid = data.get("google_uid", "").strip()
+            if not google_uid:
+                return jsonify({
+                    "success": False,
+                    "message": "Please re-authenticate with Google to confirm deletion."
+                }), 400
+            # Frontend sends Firebase UID after re-auth — must match stored google_id
+            if google_uid != user.google_id:
+                return jsonify({
+                    "success": False,
+                    "message": "Google re-authentication failed. Please try again."
+                }), 401
+
+        # ── Password account: verify password ────────────────────────────────
+        else:
+            password = data.get("password", "")
+            if not password:
+                return jsonify({
+                    "success": False,
+                    "message": "Please enter your password to confirm deletion."
+                }), 400
+            if not user.password_hash or not bcrypt.checkpw(
+                password.encode("utf-8"), user.password_hash.encode("utf-8")
+            ):
+                return jsonify({
+                    "success": False,
+                    "message": "Incorrect password."
+                }), 401
+
+        # ── Verified — proceed with deletion ─────────────────────────────────
+
+        # Delete profile photo from S3
+        if user.profile_photo:
+            delete_from_s3(user.profile_photo)
+
+        # Delete Firebase Auth user
+        if user.google_id:
+            try:
+                fb_auth.delete_user(user.google_id)
+            except Exception:
+                pass
+
+        # Delete all related DB rows
+        Wishlist.query.filter_by(user_id=user_id).delete()
+        UserVerificationToken.query.filter_by(user_id=user_id).delete()
+        UserPasswordResetToken.query.filter_by(user_id=user_id).delete()
+
+        db.session.delete(user)
+        db.session.commit()
+
+        # Clear auth cookies
+        cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/user/"
+        response = make_response(jsonify({
+            "success": True,
+            "message": "Your account has been permanently deleted."
+        }), 200)
+        response.delete_cookie("access_token_cookie", path=cookie_path)
+        response.delete_cookie("refresh_token_cookie", path=cookie_path)
+        return response
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "message": "Account deletion failed.",
+            "error": str(e)
+        }), 500
