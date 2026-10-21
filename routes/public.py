@@ -1,4 +1,5 @@
 # backend/routes/public.py
+from datetime import datetime
 from flask import Blueprint, jsonify, json, request, redirect
 from extensions import db, limiter, cache
 from models.vendor import Product, Vendor, PRODUCT_CATEGORIES
@@ -70,11 +71,23 @@ def clear_public_cache():
         pass
 
 
+# ── helper: plan is active filter ────────────────────────────────────────────
+def vendor_plan_active_filter():
+    """
+    Returns a SQLAlchemy filter condition that ensures the vendor's plan
+    is either free (no expiry needed) or a paid plan that hasn't expired yet.
+    Used in all public listing queries to instantly hide expired vendor products.
+    """
+    return db.or_(
+        Vendor.subscription_plan == "free",
+        Vendor.subscription_expires_at > datetime.utcnow()
+    )
+
+
 # ── /products/categories ──────────────────────────────────────────────────────
 @public_bp.route("/categories", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_categories():
-    # Cache for 5 minutes — categories barely change
     cached = cache.get("categories")
     if cached:
         return jsonify(json.loads(cached)), 200
@@ -89,6 +102,7 @@ def get_categories():
             Product.is_active  == True,
             Vendor.is_active   == True,
             Vendor.is_verified == True,
+            vendor_plan_active_filter(),        # ← plan expiry guard
         )
         .group_by(Product.category)
         .all()
@@ -110,7 +124,7 @@ def get_categories():
         })
 
     response_data = {"success": True, "categories": categories}
-    cache.setex("categories", 300, json.dumps(response_data))  # 5 min
+    cache.setex("categories", 300, json.dumps(response_data))
     return jsonify(response_data), 200
 
 
@@ -141,6 +155,7 @@ def get_public_products():
             Product.is_active  == True,
             Vendor.is_active   == True,
             Vendor.is_verified == True,
+            vendor_plan_active_filter(),        # ← plan expiry guard
         )
     )
 
@@ -214,7 +229,7 @@ def get_public_products():
         "total":    total,
         "has_more": (page * per_page) < total,
     }
-    cache.setex(cache_key, 60, json.dumps(response_data))  # 60 sec
+    cache.setex(cache_key, 60, json.dumps(response_data))
     return jsonify(response_data), 200
 
 
@@ -222,7 +237,6 @@ def get_public_products():
 @public_bp.route("/public/<string:slug>", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_public_product(slug):
-    # Cache individual product for 2 minutes
     cache_key = f"product:{slug}"
     cached = cache.get(cache_key)
     if cached:
@@ -236,6 +250,14 @@ def get_public_product(slug):
     if not v or not v.is_active or not v.is_verified:
         return jsonify({"success": False, "message": "This listing is not available."}), 404
 
+    # ── plan expiry guard ─────────────────────────────────────────────────────
+    plan_ok = (
+        v.subscription_plan == "free" or
+        (v.subscription_expires_at and v.subscription_expires_at > datetime.utcnow())
+    )
+    if not plan_ok:
+        return jsonify({"success": False, "message": "This listing is not available."}), 404
+
     vendor_data = {
         "id":            v.id,
         "name":          v.name,
@@ -245,7 +267,7 @@ def get_public_product(slug):
         "state":         v.state,
     }
     response_data = {"success": True, "product": p.to_dict(), "vendor": vendor_data}
-    cache.setex(cache_key, 120, json.dumps(response_data))  # 2 min
+    cache.setex(cache_key, 120, json.dumps(response_data))
     return jsonify(response_data), 200
 
 
