@@ -509,6 +509,7 @@ def get_profile():
         "mobile": user.mobile, "pincode": user.pincode,
         "area": user.area, "city": user.city, "state": user.state,
         "profile_photo": user.profile_photo,
+        "is_google_user": user.google_id is not None,  # ← ADD THIS LINE ONLY
         "profile_complete": bool(user.mobile and (user.city or user.pincode))
     }}), 200
 
