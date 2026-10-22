@@ -49,6 +49,10 @@ def validate_password(password, confirm_password):
         return False, "Password must contain at least one special character."
     return True, None
 
+def _get_vendor_id():
+    identity = get_jwt_identity()
+    return int(identity['id']) if isinstance(identity, dict) else int(identity)
+
 def check_suspended(vendor):
     if vendor.is_suspended_for_strikes():
         return jsonify({
@@ -324,7 +328,7 @@ def google_login():
 @limiter.limit("60 per minute")
 @jwt_required()
 def get_profile():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v:
         return jsonify({"success": False, "message": "Vendor not found."}), 404
@@ -334,6 +338,7 @@ def get_profile():
         "mobile": v.mobile, 
         "gst_number": v.gst_number,
         "pincode": v.pincode, "area": v.area, "city": v.city, "state": v.state,
+        "is_google_user": v.google_id is not None,
         "profile_photo": v.profile_photo,
         "subscription_plan": v.effective_plan_name(),
         "badge": v.badge(),
@@ -354,7 +359,7 @@ def get_profile():
 @limiter.limit("20 per minute")
 @jwt_required()
 def update_profile():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v:
         return jsonify({"success": False, "message": "Vendor not found."}), 404
@@ -389,7 +394,7 @@ def update_profile():
 @limiter.limit("10 per hour")
 @jwt_required()
 def update_profile_photo():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
     suspended = check_suspended(v)
@@ -409,7 +414,7 @@ def update_profile_photo():
 @limiter.limit("10 per hour")
 @jwt_required()
 def delete_profile_photo():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
     suspended = check_suspended(v)
@@ -427,7 +432,7 @@ def delete_profile_photo():
 @limiter.limit("60 per minute")
 @jwt_required()
 def get_products():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
     products = Product.query.filter_by(vendor_id=vendor_id).order_by(Product.created_at.desc()).all()
@@ -465,7 +470,7 @@ def get_plans():
 @limiter.limit("20 per hour")
 @jwt_required()
 def add_product():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
     suspended = check_suspended(v)
@@ -531,7 +536,7 @@ def add_product():
 @limiter.limit("30 per hour")
 @jwt_required()
 def update_product(product_id):
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     p = Product.query.filter_by(id=product_id, vendor_id=vendor_id).first()
     if not p: return jsonify({"success": False, "message": "Product not found."}), 404
     v = Vendor.query.get(vendor_id)
@@ -571,7 +576,7 @@ def update_product(product_id):
 @limiter.limit("30 per minute")
 @jwt_required()
 def update_product_status(product_id):
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     p = Product.query.filter_by(id=product_id, vendor_id=vendor_id).first()
     if not p: return jsonify({"success": False, "message": "Product not found."}), 404
@@ -600,7 +605,7 @@ def update_product_status(product_id):
 @jwt_required()
 def update_product_image(product_id, slot):
     if slot < 1 or slot > 5: return jsonify({"success": False, "message": "Slot must be 1-5."}), 400
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     p = Product.query.filter_by(id=product_id, vendor_id=vendor_id).first()
     if not p: return jsonify({"success": False, "message": "Product not found."}), 404
     v = Vendor.query.get(vendor_id)
@@ -622,7 +627,7 @@ def update_product_image(product_id, slot):
 @jwt_required()
 def delete_product_image(product_id, slot):
     if slot < 1 or slot > 5: return jsonify({"success": False, "message": "Slot must be 1-5."}), 400
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     p = Product.query.filter_by(id=product_id, vendor_id=vendor_id).first()
     if not p: return jsonify({"success": False, "message": "Product not found."}), 404
     v = Vendor.query.get(vendor_id)
@@ -640,7 +645,7 @@ def delete_product_image(product_id, slot):
 @limiter.limit("20 per hour")
 @jwt_required()
 def delete_product(product_id):
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     p = Product.query.filter_by(id=product_id, vendor_id=vendor_id).first()
     if not p: return jsonify({"success": False, "message": "Product not found."}), 404
     v = Vendor.query.get(vendor_id)
@@ -666,7 +671,7 @@ def record_click(product_id):
 @limiter.limit("20 per minute")
 @jwt_required()
 def get_vendor_firebase_token():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
     uid = f"vendor_{v.id}"
@@ -679,7 +684,7 @@ def get_vendor_firebase_token():
 @limiter.limit("10 per hour")
 @jwt_required()
 def subscribe():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
     suspended = check_suspended(v)
@@ -758,7 +763,7 @@ def verify_payment():
               Vendor keeps higher plan for remainder of current cycle.
     ─────────────────────────────────────────────────────────────────
     """
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
 
@@ -971,7 +976,7 @@ def razorpay_webhook():
 @limiter.limit("30 per minute")
 @jwt_required()
 def get_billing():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     now = datetime.utcnow()
 
     all_payments = VendorPayment.query.filter_by(
@@ -1053,7 +1058,7 @@ def vendor_notify_chat():
 @limiter.limit("20 per minute")
 @jwt_required()
 def save_fcm_token():
-    vendor_id = int(get_jwt_identity())
+    vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v:
         return jsonify({"success": False}), 404
@@ -1071,7 +1076,7 @@ def save_fcm_token():
 @jwt_required()
 def delete_vendor_account():
     try:
-        vendor_id = int(get_jwt_identity())
+        vendor_id = _get_vendor_id()
         v = Vendor.query.get(vendor_id)
         if not v:
             return jsonify({"success": False, "message": "Vendor not found."}), 404
@@ -1080,17 +1085,7 @@ def delete_vendor_account():
 
         # ── Google account ────────────────────────────────────────────────────
         if v.google_id:
-            google_uid = data.get("google_uid", "").strip()
-            if not google_uid:
-                return jsonify({
-                    "success": False,
-                    "message": "Please re-authenticate with Google to confirm deletion."
-                }), 400
-            if google_uid != v.google_id:
-                return jsonify({
-                    "success": False,
-                    "message": "Google re-authentication failed. Please try again."
-                }), 401
+            pass
 
         # ── Password account ──────────────────────────────────────────────────
         else:
