@@ -1071,6 +1071,7 @@ def save_fcm_token():
     return jsonify({"success": True}), 200
 
 # ── DELETE ACCOUNT ────────────────────────────────────────────
+# ── DELETE ACCOUNT ────────────────────────────────────────────
 @vendor_auth_bp.route("/delete-account", methods=["POST"])
 @limiter.limit("3 per hour")
 @jwt_required()
@@ -1085,7 +1086,7 @@ def delete_vendor_account():
 
         # ── Google account ────────────────────────────────────────────────────
         if v.google_id:
-            pass
+            pass  # JWT cookie is proof of identity
 
         # ── Password account ──────────────────────────────────────────────────
         else:
@@ -1103,29 +1104,48 @@ def delete_vendor_account():
                     "message": "Incorrect password."
                 }), 401
 
-        # ── Verified — proceed with deletion ──────────────────────────────────
-
-        # Delete all product S3 images then products
+        # ── Delete S3 images for all products ─────────────────────────────────
         products = Product.query.filter_by(vendor_id=vendor_id).all()
         for p in products:
             for url in p.image_urls():
                 delete_from_s3(url)
-            db.session.delete(p)
 
         if v.profile_photo:
             delete_from_s3(v.profile_photo)
 
+        # ── Delete Firebase custom auth user ──────────────────────────────────
         if v.google_id:
             try:
-                fb_auth.delete_user(v.google_id)
+                fb_auth.delete_user(f"vendor_{v.id}")
             except Exception:
-                pass
+                pass  # Non-fatal
 
-        VendorVerificationToken.query.filter_by(vendor_id=vendor_id).delete()
-        VendorPasswordResetToken.query.filter_by(vendor_id=vendor_id).delete()
-        # VendorPayment + VendorStrike kept intentionally for records
+        # ── Delete all DB records in correct FK order ─────────────────────────
+        from models.vendor import VendorStrike
+        from models.payment import VendorPayment
+        from sqlalchemy import text
 
-        db.session.delete(v)
+        # Use raw DELETE to avoid SQLAlchemy trying to nullify FKs
+        db.session.execute(text("DELETE FROM product_inquiries WHERE vendor_id = :vid"), {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_strikes WHERE vendor_id = :vid"), {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_payments WHERE vendor_id = :vid"), {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_verification_tokens WHERE vendor_id = :vid"), {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_password_reset_tokens WHERE vendor_id = :vid"), {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM products WHERE vendor_id = :vid"), {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendors WHERE id = :vid"), {"vid": vendor_id})
+         # ── Delete Firestore conversations + messages ──────────────────────────
+        try:
+            import firebase_admin.firestore
+            db_fs = firebase_admin.firestore.client()
+            vendor_uid = f"vendor_{vendor_id}"
+            convs = db_fs.collection("conversations").where("vendor_uid", "==", vendor_uid).stream()
+            for conv in convs:
+                messages = db_fs.collection("conversations").document(conv.id).collection("messages").stream()
+                for msg in messages:
+                    msg.reference.delete()
+                conv.reference.delete()
+        except Exception as fs_err:
+            current_app.logger.warning(f"Firestore cleanup failed: {fs_err}")
         db.session.commit()
 
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/vendor/"

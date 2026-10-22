@@ -797,16 +797,32 @@ def delete_user_account():
         # Delete Firebase Auth user
         if user.google_id:
             try:
-                fb_auth.delete_user(user.google_id)
+                fb_auth.delete_user(f"user_{user.id}")
             except Exception:
                 pass
 
-        # Delete all related DB rows
-        Wishlist.query.filter_by(user_id=user_id).delete()
-        UserVerificationToken.query.filter_by(user_id=user_id).delete()
-        UserPasswordResetToken.query.filter_by(user_id=user_id).delete()
+                # Delete all related DB rows
+        from models.vendor import ProductInquiry
+        from sqlalchemy import text
+        db.session.execute(text("DELETE FROM wishlists WHERE user_id = :uid"), {"uid": user_id})
+        db.session.execute(text("DELETE FROM user_verification_tokens WHERE user_id = :uid"), {"uid": user_id})
+        db.session.execute(text("DELETE FROM user_password_reset_tokens WHERE user_id = :uid"), {"uid": user_id})
+        db.session.execute(text("DELETE FROM product_inquiries WHERE user_id = :uid"), {"uid": user_id})
+        db.session.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
 
-        db.session.delete(user)
+        # ── Delete Firestore conversations + messages ──────────────────────────
+        try:
+            import firebase_admin.firestore
+            db_fs = firebase_admin.firestore.client()
+            user_uid = f"user_{user_id}"
+            convs = db_fs.collection("conversations").where("user_uid", "==", user_uid).stream()
+            for conv in convs:
+                for msg in db_fs.collection("conversations").document(conv.id).collection("messages").stream():
+                    msg.reference.delete()
+                conv.reference.delete()
+        except Exception as fs_err:
+            current_app.logger.warning(f"Firestore cleanup failed: {fs_err}")
+
         db.session.commit()
 
         # Clear auth cookies
