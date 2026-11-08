@@ -111,7 +111,8 @@ def create_app(env=None):
                 "package_name": "com.olrindia.app",
                 "sha256_cert_fingerprints": [
                     "CB:90:41:16:37:05:4C:89:1A:9D:30:3C:89:EF:FC:27:C2:C1:53:06:9D:85:EE:1C:A1:1C:CD:6E:00:65:8B:A6",
-                    "3A:E8:38:7D:7B:56:EC:D9:6A:3E:EE:59:09:FE:B6:FD:F2:D5:C8:4B:B2:72:E6:F4:4A:01:25:35:E6:7D:9E:17"
+                    "3A:E8:38:7D:7B:56:EC:D9:6A:3E:EE:59:09:FE:B6:FD:F2:D5:C8:4B:B2:72:E6:F4:4A:01:25:35:E6:7D:9E:17",
+                    "25:21:96:A3:72:9F:20:00:8F:73:8C:C2:6C:F6:37:57:F3:AF:A3:2F:13:A0:50:0B:37:F1:F8:31:15:A0:50:58"
                 ]
             }
         }]
