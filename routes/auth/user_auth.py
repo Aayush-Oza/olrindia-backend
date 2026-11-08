@@ -29,9 +29,9 @@ import utils.firebase_auth  # triggers Firebase Admin init (already does _init_f
 from flask import Blueprint, request, jsonify, make_response, current_app   # ← added current_app
 from utils.firebase_auth import verify_google_token, sync_identity_to_conversations
 from models.user import Wishlist
+from utils.sms import send_verification_sms
 
 user_auth_bp = Blueprint("user_auth", __name__)
-
 
 def validate_password(password, confirm_password):
     """
@@ -167,6 +167,16 @@ def register():
                 "success": True,
                 "message": "Account created but email failed. Please use resend verification."
             }), 201
+
+        # ── SMS verification (best-effort, DLT-gated) ─────────────────────────
+        if mobile:
+            send_verification_sms(
+                mobile=mobile,
+                name=name,
+                token=token_obj.token,
+                role="user",
+                frontend_url=current_app.config["FRONTEND_URL"]
+            )
 
         return jsonify({
             "success": True,

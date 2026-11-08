@@ -16,6 +16,7 @@ from utils.email import send_verification_email, send_password_reset_email
 from utils.token import generate_tokens, generate_access_token,_is_mobile
 from utils.firebase_auth import verify_google_token
 from utils.s3 import compress_and_upload, delete_from_s3
+from utils.sms import send_verification_sms
 from utils.fcm import send_chat_notification
 from models.user import User
 from firebase_admin import auth as fb_auth
@@ -133,6 +134,16 @@ def register():
         email_sent = send_verification_email(to_email=email, name=name, token=token_obj.token, role="vendor")
         if not email_sent:
             return jsonify({"success": True, "message": "Account created but email failed. Please use resend verification."}), 201
+
+        # ── SMS verification (best-effort, DLT-gated) ─────────────────────────
+        if mobile:
+            send_verification_sms(
+                mobile=mobile,
+                name=name,
+                token=token_obj.token,
+                role="vendor",
+                frontend_url=current_app.config["FRONTEND_URL"]
+            )
 
         return jsonify({"success": True, "message": "Vendor account created! Please check your email to verify your account."}), 201
 
