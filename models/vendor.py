@@ -13,14 +13,27 @@ from extensions import db
 # badge: shown next to vendor/product on frontend ("verified" = blue tick style,
 #        "featured" = gold/star style). None = no badge.
 PLAN_LIMITS = {
-    "free":    {"max_active_posts": 5,    "priority_score": 0, "badge": None,
-                "label": "Free",          "price": 0},
-    "starter": {"max_active_posts": 10,   "priority_score": 1, "badge": None,
-                "label": "Starter",       "price": 249},
-    "growth":  {"max_active_posts": 20,   "priority_score": 2, "badge": "verified",
-                "label": "Growth",        "price": 449},
-    "premium": {"max_active_posts": None, "priority_score": 3, "badge": "featured",
-                "label": "Premium",       "price": 999},
+    "free":           {"max_active_posts": 5,    "priority_score": 0, "badge": None,
+                       "label": "Free",           "price": 0,    "duration_days": 30,
+                       "billing_cycle": "monthly"},
+    "starter":        {"max_active_posts": 10,   "priority_score": 1, "badge": None,
+                       "label": "Starter",        "price": 249,  "duration_days": 30,
+                       "billing_cycle": "monthly"},
+    "growth":         {"max_active_posts": 20,   "priority_score": 2, "badge": "verified",
+                       "label": "Growth",         "price": 449,  "duration_days": 30,
+                       "billing_cycle": "monthly"},
+    "premium":        {"max_active_posts": None, "priority_score": 3, "badge": "featured",
+                       "label": "Premium",        "price": 999,  "duration_days": 30,
+                       "billing_cycle": "monthly"},
+    "starter_yearly": {"max_active_posts": 10,   "priority_score": 1, "badge": None,
+                       "label": "Starter Yearly", "price": 2499, "duration_days": 365,
+                       "billing_cycle": "yearly"},
+    "growth_yearly":  {"max_active_posts": 20,   "priority_score": 2, "badge": "verified",
+                       "label": "Growth Yearly",  "price": 4499, "duration_days": 365,
+                       "billing_cycle": "yearly"},
+    "premium_yearly": {"max_active_posts": None, "priority_score": 3, "badge": "featured",
+                       "label": "Premium Yearly", "price": 9999, "duration_days": 365,
+                       "billing_cycle": "yearly"},
 }
 
 class Vendor(db.Model):
@@ -65,7 +78,8 @@ class Vendor(db.Model):
     # ── Subscription ──────────────────────────────────────────────────────────
     # starter / growth / premium = paid tiers, see PLAN_LIMITS above
     subscription_plan = db.Column(
-        db.Enum("free", "starter", "growth", "premium"),
+        db.Enum("free", "starter", "growth", "premium",
+                "starter_yearly", "growth_yearly", "premium_yearly"),
         default="free",
         nullable=False
     )
@@ -83,25 +97,33 @@ class Vendor(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # ── Plan helpers ─────────────────────────────────────────────────────────
+    PAID_PLANS = ("starter", "growth", "premium", "starter_yearly", "growth_yearly", "premium_yearly")
+
     def plan_config(self):
         """Returns the PLAN_LIMITS dict for this vendor's current effective plan.
         If a paid/trial plan has expired, treat as 'free' until renewed."""
         plan = self.subscription_plan or "free"
-        if plan in ("starter", "growth", "premium"):
+        if plan in self.PAID_PLANS:
             if self.subscription_expires_at is None or datetime.utcnow() > self.subscription_expires_at:
                 plan = "free"
         return PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
 
     def effective_plan_name(self):
         plan = self.subscription_plan or "free"
-        if plan in ("starter", "growth", "premium"):
+        if plan in self.PAID_PLANS:
             if self.subscription_expires_at is None or datetime.utcnow() > self.subscription_expires_at:
                 return "free"
         return plan
 
+    def effective_base_plan(self):
+        """Returns base plan name without _yearly suffix. e.g. starter_yearly → starter"""
+        plan = self.effective_plan_name()
+        return plan.replace("_yearly", "")
+
     def is_subscription_active(self):
         """True only for a currently-paid (non-trial, non-free) active plan."""
-        if self.subscription_plan not in ("starter", "growth", "premium"):
+        if self.subscription_plan not in ("starter", "growth", "premium",
+                                          "starter_yearly", "growth_yearly", "premium_yearly"):
             return False
         if self.subscription_expires_at is None:
             return False

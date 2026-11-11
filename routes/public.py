@@ -115,7 +115,7 @@ def get_categories():
         if cnt == 0:
             continue
         filename = CATEGORY_IMAGES.get(cat)
-        image_url = f"{BASE_URL}/static/categories/{quote(filename)}" if filename else None
+        image_url = f"{BASE_URL}/assets/categories/{quote(filename)}" if filename else None
         categories.append({
             'name':          cat,
             'emoji':         CATEGORY_EMOJIS.get(cat, '📦'),

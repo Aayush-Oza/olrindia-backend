@@ -32,7 +32,12 @@ from extensions import limiter
 vendor_auth_bp = Blueprint("vendor_auth", __name__)
 
 # Plan rank helper - single source of truth used in payment logic
-PLAN_RANK = {"free": 0, "starter": 1, "growth": 2, "premium": 3}
+PLAN_RANK = {
+    "free": 0,
+    "starter": 1, "starter_yearly": 1,
+    "growth": 2,  "growth_yearly": 2,
+    "premium": 3, "premium_yearly": 3,
+}
 
 
 def validate_password(password, confirm_password):
@@ -703,16 +708,22 @@ def subscribe():
 
     data = request.get_json()
     plan = (data or {}).get("plan", "").strip().lower()
+    billing_cycle = (data or {}).get("billing_cycle", "monthly").strip().lower()
+    if billing_cycle not in ("monthly", "yearly"):
+        return jsonify({"success": False, "message": "Invalid billing cycle. Choose monthly or yearly."}), 400
     if plan not in ("starter", "growth", "premium"):
         return jsonify({"success": False, "message": "Invalid plan. Choose starter, growth, or premium."}), 400
 
-    plan_info  = PLAN_LIMITS[plan]
+    # Build full plan key e.g. starter, starter_yearly
+    plan_key = plan if billing_cycle == "monthly" else f"{plan}_yearly"
+    plan_info  = PLAN_LIMITS[plan_key]
     amount_inr = plan_info["price"]
+    plan = plan_key  # use full key going forward
     if v.pending_plan is not None:
         return jsonify({"success": False, "message": f"You already have a plan change to {v.pending_plan.capitalize()} scheduled. Please wait until it activates."}), 409
 
     # reuse or cancel any already-open order for this vendor
-    existing = VendorPayment.query.filter_by(vendor_id=vendor_id, status="created").order_by(VendorPayment.id.desc()).first()
+        existing = VendorPayment.query.filter_by(vendor_id=vendor_id, status="created").order_by(VendorPayment.id.desc()).first()
     if existing:
         if existing.plan == plan:
             plan_info = PLAN_LIMITS[plan]
@@ -726,14 +737,15 @@ def subscribe():
         else:
             existing.status = "cancelled"
             db.session.commit()
-            
+
     order = create_order(amount_inr, plan, vendor_id)
     if not order:
         return jsonify({"success": False, "message": "Could not initiate payment. Please try again."}), 500
 
     payment = VendorPayment(
         vendor_id=vendor_id, plan=plan, amount_inr=amount_inr,
-        razorpay_order_id=order["id"], status="created", duration_days=30,
+        razorpay_order_id=order["id"], status="created",
+        duration_days=plan_info["duration_days"],
     )
     db.session.add(payment)
     db.session.commit()
@@ -746,8 +758,8 @@ def subscribe():
         "key_id":     current_app.config["RAZORPAY_KEY_ID"],
         "vendor":     {"name": v.name, "email": v.email},
         "plan_label": plan_info["label"],
+        "billing_cycle": billing_cycle,
     }), 200
-
 
 # ── PAYMENT VERIFY: Frontend sends payment proof → activate plan ──────────────
 @vendor_auth_bp.route("/payment/verify", methods=["POST"])
