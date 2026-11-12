@@ -714,9 +714,9 @@ def get_user_firebase_token():
 @jwt_required()
 def user_notify_chat():
     import firebase_admin.firestore
-    data     = request.get_json() or {}
-    conv_id  = data.get('conv_id', '')
-    text     = data.get('text', '')
+    data        = request.get_json() or {}
+    conv_id     = data.get('conv_id', '')
+    text        = data.get('text', '')
     sender_role = data.get('sender_role', '')
     if not conv_id or not text:
         return jsonify({'success': False}), 400
@@ -730,13 +730,27 @@ def user_notify_chat():
         vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
         v = Vendor.query.get(vendor_id)
         if v and v.fcm_token:
-            send_chat_notification(v.fcm_token, conv.get('user_name') or 'User', text, conv_id, conv.get('user_photo'))
+            sender_name = conv.get('user_name') or ''
+            if not sender_name:
+                user_id = int(conv.get('user_uid', '0').replace('user_', ''))
+                u = User.query.get(user_id)
+                sender_name = u.name if u else 'Someone'
+                if u:
+                    sync_identity_to_conversations('user', u.id, u.name, u.profile_photo)
+            send_chat_notification(v.fcm_token, sender_name, text, conv_id, conv.get('user_photo'))
     else:
         user_id = int(conv.get('user_uid', '0').replace('user_', ''))
         u = User.query.get(user_id)
         if u and u.fcm_token:
-            send_chat_notification(u.fcm_token, conv.get('vendor_name') or 'Vendor', text, conv_id, conv.get('vendor_photo'))
-            
+            sender_name = conv.get('vendor_name') or ''
+            if not sender_name:
+                vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
+                v = Vendor.query.get(vendor_id)
+                sender_name = v.name if v else 'Someone'
+                if v:
+                    sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
+            send_chat_notification(u.fcm_token, sender_name, text, conv_id, conv.get('vendor_photo'))
+
     return jsonify({'success': True}), 200
 
 @user_auth_bp.route("/fcm-token", methods=["POST"])
