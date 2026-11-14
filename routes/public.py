@@ -66,6 +66,10 @@ def clear_public_cache():
         keys = cache.keys("public:*")
         if keys:
             cache.delete(*keys)
+        # ← FIX: also clear individual product page caches
+        product_keys = cache.keys("product:*")
+        if product_keys:
+            cache.delete(*product_keys)
         cache.delete("categories")
     except Exception:
         pass
@@ -102,7 +106,7 @@ def get_categories():
             Product.is_active  == True,
             Vendor.is_active   == True,
             Vendor.is_verified == True,
-            vendor_plan_active_filter(),        # ← plan expiry guard
+            vendor_plan_active_filter(),
         )
         .group_by(Product.category)
         .all()
@@ -155,7 +159,7 @@ def get_public_products():
             Product.is_active  == True,
             Vendor.is_active   == True,
             Vendor.is_verified == True,
-            vendor_plan_active_filter(),        # ← plan expiry guard
+            vendor_plan_active_filter(),
         )
     )
 
@@ -250,7 +254,6 @@ def get_public_product(slug):
     if not v or not v.is_active or not v.is_verified:
         return jsonify({"success": False, "message": "This listing is not available."}), 404
 
-    # ── plan expiry guard ─────────────────────────────────────────────────────
     plan_ok = (
         v.subscription_plan == "free" or
         (v.subscription_expires_at and v.subscription_expires_at > datetime.utcnow())
@@ -260,7 +263,7 @@ def get_public_product(slug):
 
     vendor_data = {
         "id":            v.id,
-        "name":          v.name,
+        "name":          v.name or '',       # ← FIX: ensure never None
         "profile_photo": v.profile_photo,
         "badge":         v.badge(),
         "city":          v.city,

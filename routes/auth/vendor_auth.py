@@ -31,7 +31,6 @@ from extensions import limiter
 
 vendor_auth_bp = Blueprint("vendor_auth", __name__)
 
-# Plan rank helper - single source of truth used in payment logic
 PLAN_RANK = {
     "free": 0,
     "starter": 1, "starter_yearly": 1,
@@ -125,7 +124,7 @@ def register():
 
         vendor = Vendor(
             name=name, email=email, mobile=mobile,
-            password_hash=password_hash, 
+            password_hash=password_hash,
             gst_number=gst_number, pincode=pincode, city=city, state=state, area=area,
             is_verified=False, subscription_plan="free",
         )
@@ -140,7 +139,6 @@ def register():
         if not email_sent:
             return jsonify({"success": True, "message": "Account created but email failed. Please use resend verification."}), 201
 
-        # ── SMS verification (best-effort, DLT-gated) ─────────────────────────
         if mobile:
             send_verification_sms(
                 mobile=mobile,
@@ -203,8 +201,8 @@ def login():
         cookie_max_age = 365*24*60*60 if _is_mobile() else 7*24*60*60
         response = make_response(jsonify({"success": True, "message": "Login successful.", "vendor": vendor_public_dict(vendor)}), 200)
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/vendor/"
-        response.set_cookie("access_token_cookie",  tokens["access_token"],  httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age,      path=cookie_path)
-        response.set_cookie("refresh_token_cookie", tokens["refresh_token"], httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age,  path=cookie_path)
+        response.set_cookie("access_token_cookie",  tokens["access_token"],  httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
+        response.set_cookie("refresh_token_cookie", tokens["refresh_token"], httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
         return response
     except Exception as e:
         return jsonify({"success": False, "message": "Login failed.", "error": str(e)}), 500
@@ -328,10 +326,10 @@ def google_login():
 
         identity = {"id": vendor.id, "role": "vendor"}
         tokens = generate_tokens(identity)
-        cookie_max_age = 365*24*60*60 if _is_mobile() else 7*24*60*60  # ADD THIS
+        cookie_max_age = 365*24*60*60 if _is_mobile() else 7*24*60*60
         response = make_response(jsonify({"success": True, "is_new_vendor": False, "message": "Google sign-in successful.", "vendor": vendor_public_dict(vendor)}), 200)
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/vendor/"
-        response.set_cookie("access_token_cookie",  tokens["access_token"],  httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age,      path=cookie_path)
+        response.set_cookie("access_token_cookie",  tokens["access_token"],  httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
         response.set_cookie("refresh_token_cookie", tokens["refresh_token"], httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
         return response
     except Exception as e:
@@ -348,10 +346,10 @@ def get_profile():
     v = Vendor.query.get(vendor_id)
     if not v:
         return jsonify({"success": False, "message": "Vendor not found."}), 404
-    check_single_vendor(v)  # Instant expiry check on profile load
+    check_single_vendor(v)
     return jsonify({"success": True, "vendor": {
         "id": v.id, "name": v.name, "email": v.email,
-        "mobile": v.mobile, 
+        "mobile": v.mobile,
         "gst_number": v.gst_number,
         "pincode": v.pincode, "area": v.area, "city": v.city, "state": v.state,
         "is_google_user": v.google_id is not None,
@@ -370,7 +368,7 @@ def get_profile():
         "suspended_reason": v.suspended_reason,
         "pending_plan": v.pending_plan,
     }}), 200
-    
+
 @vendor_auth_bp.route("/profile", methods=["PUT"])
 @limiter.limit("20 per minute")
 @jwt_required()
@@ -396,12 +394,13 @@ def update_profile():
                 return jsonify({"success": False, "message": "Enter a valid 6-digit pincode."}), 400
             v.pincode = pincode
         else:
-            v.pincode = None  # cleared manually — wipe stale pincode
+            v.pincode = None
     if data.get("area"):          v.area          = data["area"].strip()
     if data.get("city"):          v.city          = data["city"].strip()
     if data.get("state"):         v.state         = data["state"].strip()
     db.session.commit()
     sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
+    clear_public_cache()  # ← FIX: bust cached product pages with stale vendor name
     return jsonify({"success": True, "message": "Profile updated."}), 200
 
 
@@ -424,6 +423,7 @@ def update_profile_photo():
     db.session.commit()
     if old_url: delete_from_s3(old_url)
     sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
+    clear_public_cache()  # ← FIX: bust cached product pages with stale vendor photo
     return jsonify({"success": True, "message": "Profile photo updated.", "url": url}), 200
 
 @vendor_auth_bp.route("/profile/photo", methods=["DELETE"])
@@ -440,6 +440,7 @@ def delete_profile_photo():
         v.profile_photo = None
         db.session.commit()
     sync_identity_to_conversations('vendor', v.id, v.name, None)
+    clear_public_cache()  # ← FIX: bust cached product pages
     return jsonify({"success": True, "message": "Profile photo removed."}), 200
 
 
@@ -497,7 +498,6 @@ def add_product():
 
     name = request.form.get("name", "").strip()
     if not name: return jsonify({"success": False, "message": "name is required."}), 400
-
 
     rent_per_hour_raw  = request.form.get("rent_per_hour", "").strip()
     rent_per_km_raw    = request.form.get("rent_per_km", "").strip()
@@ -695,7 +695,7 @@ def get_vendor_firebase_token():
     return jsonify({"success": True, "firebase_token": custom_token.decode("utf-8"), "uid": uid}), 200
 
 
-# ── SUBSCRIBE: Vendor selects a plan → create Razorpay order ─────────────────
+# ── SUBSCRIBE ─────────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/subscribe", methods=["POST"])
 @limiter.limit("10 per hour")
 @jwt_required()
@@ -714,16 +714,14 @@ def subscribe():
     if plan not in ("starter", "growth", "premium"):
         return jsonify({"success": False, "message": "Invalid plan. Choose starter, growth, or premium."}), 400
 
-    # Build full plan key e.g. starter, starter_yearly
     plan_key = plan if billing_cycle == "monthly" else f"{plan}_yearly"
     plan_info  = PLAN_LIMITS[plan_key]
     amount_inr = plan_info["price"]
-    plan = plan_key  # use full key going forward
+    plan = plan_key
     if v.pending_plan is not None:
         return jsonify({"success": False, "message": f"You already have a plan change to {v.pending_plan.capitalize()} scheduled. Please wait until it activates."}), 409
 
-    # reuse or cancel any already-open order for this vendor
-        existing = VendorPayment.query.filter_by(vendor_id=vendor_id, status="created").order_by(VendorPayment.id.desc()).first()
+    existing = VendorPayment.query.filter_by(vendor_id=vendor_id, status="created").order_by(VendorPayment.id.desc()).first()
     if existing:
         if existing.plan == plan:
             plan_info = PLAN_LIMITS[plan]
@@ -761,31 +759,11 @@ def subscribe():
         "billing_cycle": billing_cycle,
     }), 200
 
-# ── PAYMENT VERIFY: Frontend sends payment proof → activate plan ──────────────
+# ── PAYMENT VERIFY ────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/payment/verify", methods=["POST"])
 @limiter.limit("10 per hour")
 @jwt_required()
 def verify_payment():
-    """
-    Plan transition rules
-    ─────────────────────────────────────────────────────────────────
-    CASE A  No active paid plan (free/expired/trial):
-              Activate new plan immediately. Expiry = now + 30 days.
-
-    CASE B  Active plan + buying HIGHER plan (upgrade):
-              Switch plan now. Extend expiry by 30 days from current expiry.
-              Vendor keeps remaining days on old plan - nothing is lost.
-
-    CASE C  Active plan + buying SAME plan (renewal):
-              Keep plan. Extend expiry by 30 days from current expiry.
-
-    CASE D  Active plan + buying LOWER plan (downgrade):
-              DO NOT switch plan yet. Store as pending_plan.
-              Extend expiry by 30 days from current expiry.
-              plan_expiry_job activates pending_plan at next cycle end.
-              Vendor keeps higher plan for remainder of current cycle.
-    ─────────────────────────────────────────────────────────────────
-    """
     vendor_id = _get_vendor_id()
     v = Vendor.query.get(vendor_id)
     if not v: return jsonify({"success": False, "message": "Vendor not found."}), 404
@@ -816,7 +794,6 @@ def verify_payment():
         db.session.commit()
         return jsonify({"success": False, "message": "Amount mismatch. Please contact support."}), 400
 
-    # ── Signature valid ───────────────────────────────────────────────────────
     now = datetime.utcnow()
     payment.razorpay_payment_id = payment_id
     payment.razorpay_signature  = signature
@@ -825,10 +802,9 @@ def verify_payment():
 
     new_plan     = payment.plan
     new_rank     = PLAN_RANK.get(new_plan, 0)
-    current_plan = v.effective_plan_name()   # accounts for expiry → "free"
+    current_plan = v.effective_plan_name()
     current_rank = PLAN_RANK.get(current_plan, 0)
 
-    # An "active" paid plan means: paid tier, not expired
     plan_is_active = (
         v.subscription_expires_at is not None and
         v.subscription_expires_at > now and
@@ -836,42 +812,32 @@ def verify_payment():
     )
 
     if not plan_is_active:
-        # CASE A - No active paid plan
         v.subscription_plan       = new_plan
         v.subscription_expires_at = now + timedelta(days=payment.duration_days)
         v.pending_plan            = None
         payment.period_start      = now
         payment.period_end        = v.subscription_expires_at
         transition = "activated"
-
     elif new_rank > current_rank:
-        # CASE B - Upgrade: queue for next cycle
         old_expiry           = v.subscription_expires_at
         v.pending_plan       = new_plan
         payment.period_start = old_expiry
         payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
         transition = "pending_upgrade"
-
     elif new_rank == current_rank:
-        # CASE C - Same plan renewal
         v.subscription_plan       = new_plan
         v.subscription_expires_at = v.subscription_expires_at + timedelta(days=payment.duration_days)
         v.pending_plan            = None
         payment.period_start      = v.subscription_expires_at - timedelta(days=payment.duration_days)
         payment.period_end        = v.subscription_expires_at
         transition = "renewed"
-
-
     else:
-        # CASE D - Downgrade: keep current plan, queue new one
-        # Do NOT touch subscription_plan or subscription_expires_at
         old_expiry           = v.subscription_expires_at
         v.pending_plan       = new_plan
-        payment.period_start = old_expiry  # starts after current plan ends
+        payment.period_start = old_expiry
         payment.period_end   = old_expiry + timedelta(days=payment.duration_days)
         transition = "pending_downgrade"
 
-    # Reactivate plan_expired products for any case except downgrade
     if transition not in ("pending_downgrade", "pending_upgrade"):
         Product.query.filter_by(
             vendor_id=vendor_id, is_active=False, deactivated_by="plan_expired"
@@ -879,7 +845,6 @@ def verify_payment():
 
     db.session.commit()
 
-    # Human-readable message
     expiry_str = v.subscription_expires_at.strftime("%-d %B %Y") if v.subscription_expires_at else ""
     if transition == "activated":
         msg = f"You're now on the {new_plan.capitalize()} plan! Active until {expiry_str}."
@@ -910,11 +875,6 @@ def verify_payment():
 # ── RAZORPAY WEBHOOK ──────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/webhook/razorpay", methods=["POST"])
 def razorpay_webhook():
-    """
-    Razorpay calls this directly when payment succeeds.
-    Uses the same 4-case transition logic as /payment/verify.
-    Safe to run even if /payment/verify already processed it.
-    """
     webhook_secret = current_app.config.get("RAZORPAY_WEBHOOK_SECRET", "")
     received_sig   = request.headers.get("X-Razorpay-Signature", "")
     body           = request.get_data()
@@ -1017,11 +977,9 @@ def get_billing():
         is_future  = period_start and period_start > now
         is_past    = period_end and period_end < now
 
-        # Only include: last 1 past, current, all future
         if is_past:
             past_added += 1
-            # We'll filter to only last 1 past after loop
-        
+
         history.append({
             "plan":         p.plan,
             "amount_inr":   str(p.amount_inr),
@@ -1033,7 +991,6 @@ def get_billing():
             "is_past":      is_past,
         })
 
-    # Keep only last 1 past + current + all future
     past_seen = 0
     filtered = []
     for item in reversed(history):
@@ -1068,25 +1025,23 @@ def vendor_notify_chat():
         vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
         v = Vendor.query.get(vendor_id)
         if v and v.fcm_token:
-            sender_name = conv.get('user_name') or ''
-            if not sender_name:
-                user_id = int(conv.get('user_uid', '0').replace('user_', ''))
-                u = User.query.get(user_id)
-                sender_name = u.name if u else 'Someone'
-                if u:
-                    sync_identity_to_conversations('user', u.id, u.name, u.profile_photo)
+            # ← FIX: always pull name from SQL, not Firestore
+            user_id = int(conv.get('user_uid', '0').replace('user_', ''))
+            u = User.query.get(user_id)
+            sender_name = u.name if u else conv.get('user_name') or 'Someone'
+            if u and not conv.get('user_name'):
+                sync_identity_to_conversations('user', u.id, u.name, u.profile_photo)
             send_chat_notification(v.fcm_token, sender_name, text, conv_id, conv.get('user_photo'))
     else:
         user_id = int(conv.get('user_uid', '0').replace('user_', ''))
         u = User.query.get(user_id)
         if u and u.fcm_token:
-            sender_name = conv.get('vendor_name') or ''
-            if not sender_name:
-                vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
-                v = Vendor.query.get(vendor_id)
-                sender_name = v.name if v else 'Someone'
-                if v:
-                    sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
+            # ← FIX: always pull name from SQL, not Firestore
+            vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
+            v = Vendor.query.get(vendor_id)
+            sender_name = v.name if v else conv.get('vendor_name') or 'Someone'
+            if v and not conv.get('vendor_name'):
+                sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
             send_chat_notification(u.fcm_token, sender_name, text, conv_id, conv.get('vendor_photo'))
 
     return jsonify({'success': True}), 200
@@ -1108,7 +1063,6 @@ def save_fcm_token():
     return jsonify({"success": True}), 200
 
 # ── DELETE ACCOUNT ────────────────────────────────────────────
-# ── DELETE ACCOUNT ────────────────────────────────────────────
 @vendor_auth_bp.route("/delete-account", methods=["POST"])
 @limiter.limit("3 per hour")
 @jwt_required()
@@ -1121,11 +1075,9 @@ def delete_vendor_account():
 
         data = request.get_json() or {}
 
-        # ── Google account ────────────────────────────────────────────────────
         if v.google_id:
-            pass  # JWT cookie is proof of identity
+            pass
 
-        # ── Password account ──────────────────────────────────────────────────
         else:
             password = data.get("password", "")
             if not password:
@@ -1141,7 +1093,6 @@ def delete_vendor_account():
                     "message": "Incorrect password."
                 }), 401
 
-        # ── Delete S3 images for all products ─────────────────────────────────
         products = Product.query.filter_by(vendor_id=vendor_id).all()
         for p in products:
             for url in p.image_urls():
@@ -1150,19 +1101,16 @@ def delete_vendor_account():
         if v.profile_photo:
             delete_from_s3(v.profile_photo)
 
-        # ── Delete Firebase custom auth user ──────────────────────────────────
         if v.google_id:
             try:
                 fb_auth.delete_user(f"vendor_{v.id}")
             except Exception:
-                pass  # Non-fatal
+                pass
 
-        # ── Delete all DB records in correct FK order ─────────────────────────
         from models.vendor import VendorStrike
         from models.payment import VendorPayment
         from sqlalchemy import text
 
-        # Use raw DELETE to avoid SQLAlchemy trying to nullify FKs
         db.session.execute(text("DELETE FROM product_inquiries WHERE vendor_id = :vid"), {"vid": vendor_id})
         db.session.execute(text("DELETE FROM vendor_strikes WHERE vendor_id = :vid"), {"vid": vendor_id})
         db.session.execute(text("DELETE FROM vendor_payments WHERE vendor_id = :vid"), {"vid": vendor_id})
@@ -1170,7 +1118,7 @@ def delete_vendor_account():
         db.session.execute(text("DELETE FROM vendor_password_reset_tokens WHERE vendor_id = :vid"), {"vid": vendor_id})
         db.session.execute(text("DELETE FROM products WHERE vendor_id = :vid"), {"vid": vendor_id})
         db.session.execute(text("DELETE FROM vendors WHERE id = :vid"), {"vid": vendor_id})
-         # ── Delete Firestore conversations + messages ──────────────────────────
+
         try:
             import firebase_admin.firestore
             db_fs = firebase_admin.firestore.client()
@@ -1183,7 +1131,9 @@ def delete_vendor_account():
                 conv.reference.delete()
         except Exception as fs_err:
             current_app.logger.warning(f"Firestore cleanup failed: {fs_err}")
+
         db.session.commit()
+        clear_public_cache()
 
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/vendor/"
         response = make_response(jsonify({

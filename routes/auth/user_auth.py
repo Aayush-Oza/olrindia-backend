@@ -26,10 +26,11 @@ from utils.firebase_auth import verify_google_token
 from utils.s3 import compress_and_upload, delete_from_s3
 from firebase_admin import auth as fb_auth
 import utils.firebase_auth  # triggers Firebase Admin init (already does _init_firebase() on import)
-from flask import Blueprint, request, jsonify, make_response, current_app   # ← added current_app
+from flask import Blueprint, request, jsonify, make_response, current_app
 from utils.firebase_auth import verify_google_token, sync_identity_to_conversations
 from models.user import Wishlist
 from utils.sms import send_verification_sms
+from routes.public import clear_public_cache  # ← FIX: import cache clearer
 
 user_auth_bp = Blueprint("user_auth", __name__)
 
@@ -87,7 +88,6 @@ def register():
     try:
         data = request.get_json()
 
-        # ── Validate required fields ──────────────────────────────────────────
         required = ["name", "email", "password", "confirm_password"]
         for field in required:
             if not data.get(field):
@@ -96,7 +96,6 @@ def register():
                     "message": f"{field} is required."
                 }), 400
 
-        # ── Validate password strength ────────────────────────────────────────
         is_valid, error = validate_password(data["password"], data["confirm_password"])
         if not is_valid:
             return jsonify({"success": False, "message": error}), 400
@@ -113,7 +112,6 @@ def register():
         latitude = data.get("latitude") or None
         longitude = data.get("longitude") or None
 
-        # ── Check duplicates ──────────────────────────────────────────────────
         if User.query.filter_by(email=email).first():
             return jsonify({
                 "success": False,
@@ -126,13 +124,11 @@ def register():
                 "message": "An account with this mobile number already exists."
             }), 409
 
-        # ── Hash password ─────────────────────────────────────────────────────
         password_hash = bcrypt.hashpw(
             data["password"].encode("utf-8"),
             bcrypt.gensalt()
         ).decode("utf-8")
 
-        # ── Create user ───────────────────────────────────────────────────────
         user = User(
             name=name,
             email=email,
@@ -149,12 +145,10 @@ def register():
         db.session.add(user)
         db.session.flush()
 
-        # ── Generate verification token ───────────────────────────────────────
         token_obj = UserVerificationToken.generate(user.id)
         db.session.add(token_obj)
         db.session.commit()
 
-        # ── Send magic link email ─────────────────────────────────────────────
         email_sent = send_verification_email(
             to_email=email,
             name=name,
@@ -168,7 +162,6 @@ def register():
                 "message": "Account created but email failed. Please use resend verification."
             }), 201
 
-        # ── SMS verification (best-effort, DLT-gated) ─────────────────────────
         if mobile:
             send_verification_sms(
                 mobile=mobile,
@@ -231,10 +224,6 @@ def verify_email():
 @user_auth_bp.route("/login", methods=["POST"])
 @limiter.limit("10 per minute;50 per hour")
 def login():
-    """
-    Login user with email and password.
-    Returns JWT access + refresh tokens in HttpOnly cookies.
-    """
     try:
         data = request.get_json()
         email = data.get("email", "").strip().lower()
@@ -278,9 +267,9 @@ def login():
         }), 200)
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/user/"
         response.set_cookie("access_token_cookie", tokens["access_token"],
-                           httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age,path=cookie_path)
+                           httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
         response.set_cookie("refresh_token_cookie", tokens["refresh_token"],
-                           httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age,path=cookie_path)
+                           httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
 
         return response
 
@@ -293,14 +282,13 @@ def login():
 @limiter.limit("30 per minute")
 @jwt_required(refresh=True)
 def refresh():
-    """Get new access token using refresh token"""
     try:
         identity = get_jwt_identity()
         new_access_token = generate_access_token(identity)
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/user/"
         response = make_response(jsonify({"success": True, "message": "Token refreshed."}), 200)
         response.set_cookie("access_token_cookie", new_access_token,
-                           httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=15*60,path=cookie_path)
+                           httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=15*60, path=cookie_path)
         return response
 
     except Exception as e:
@@ -332,7 +320,6 @@ def logout():
 @user_auth_bp.route("/forgot-password", methods=["POST"])
 @limiter.limit("5 per hour")
 def forgot_password():
-    """Send password reset link to user's email"""
     try:
         data = request.get_json()
         email = data.get("email", "").strip().lower()
@@ -342,7 +329,6 @@ def forgot_password():
 
         user = User.query.filter_by(email=email).first()
 
-        # Always return success - don't reveal if email exists (prevents enumeration)
         if not user:
             return jsonify({
                 "success": True,
@@ -369,7 +355,6 @@ def forgot_password():
 @user_auth_bp.route("/reset-password", methods=["POST"])
 @limiter.limit("5 per hour")
 def reset_password():
-    """Reset user password using token from reset email"""
     try:
         data = request.get_json()
         token = data.get("token", "").strip()
@@ -382,7 +367,6 @@ def reset_password():
                 "message": "Token, new password and confirm password are required."
             }), 400
 
-        # Validate password strength
         is_valid, error = validate_password(new_password, confirm_password)
         if not is_valid:
             return jsonify({"success": False, "message": error}), 400
@@ -415,25 +399,10 @@ def reset_password():
 @user_auth_bp.route("/google", methods=["POST"])
 @limiter.limit("10 per minute;50 per hour")
 def google_login():
-    """
-    Sign in or register a user via Google Sign-In (Firebase).
-
-    Request body:
-    {
-        "id_token": "<Firebase ID token from frontend signInWithPopup()>"
-    }
-
-    Flow:
-    - Verifies the Firebase ID token server-side
-    - If email already exists in users table → logs them in (issues JWT cookies)
-    - If email is new → creates account automatically, then logs them in
-    - Returns the same shape as /login so the frontend handles both identically
-    """
     try:
         data = request.get_json()
         id_token = (data or {}).get("id_token", "")
 
-        # ── Verify token with Firebase ────────────────────────────────────────
         google_data = verify_google_token(id_token)
         if not google_data:
             return jsonify({
@@ -446,44 +415,39 @@ def google_login():
         uid     = google_data["uid"]
         picture = google_data["picture"]
 
-        # ── Find or create user ───────────────────────────────────────────────
         created = False
         user = User.query.filter_by(email=email).first()
 
         if user:
-            # Existing user - update google_id if not already stored
             if not user.google_id:
                 user.google_id = uid
                 db.session.commit()
 
-            # Block deactivated accounts
             if not user.is_active:
                 return jsonify({
                     "success": False,
                     "message": "Account deactivated. Please contact support."
                 }), 403
         else:
-            # New user - create account (no password needed, no email verification step)
             user = User(
                 name=name,
                 email=email,
-                password_hash=None,   # Google users have no password
+                password_hash=None,
                 google_id=uid,
-                is_verified=True,     # Google already verified their email
+                is_verified=True,
                 is_active=True,
             )
             db.session.add(user)
             db.session.commit()
             created = True
 
-        # ── Issue JWT cookies (same as normal login) ──────────────────────────
         identity = {"id": user.id, "role": "user"}
         tokens = generate_tokens(identity)
         cookie_max_age = 365*24*60*60 if _is_mobile() else 7*24*60*60
         response = make_response(jsonify({
             "success": True,
-                "message": "Account created successfully." if created else "Signed in successfully.",
-                "is_new_user": created,
+            "message": "Account created successfully." if created else "Signed in successfully.",
+            "is_new_user": created,
             "user": {
                 "id":       user.id,
                 "name":     user.name,
@@ -495,9 +459,9 @@ def google_login():
         }), 200)
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/user/"
         response.set_cookie("access_token_cookie",  tokens["access_token"],
-                            httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age,path=cookie_path)
+                            httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
         response.set_cookie("refresh_token_cookie", tokens["refresh_token"],
-                            httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age,path=cookie_path)
+                            httponly=True, secure=current_app.config.get("JWT_COOKIE_SECURE", False), samesite="Lax", max_age=cookie_max_age, path=cookie_path)
         return response
 
     except Exception as e:
@@ -505,7 +469,8 @@ def google_login():
         import traceback
         print(traceback.format_exc())
         return jsonify({"success": False, "message": "Google sign-in failed.", "error": str(e)}), 500
-    
+
+
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 # ── GET PROFILE ───────────────────────────────────────────────
@@ -522,7 +487,7 @@ def get_profile():
         "mobile": user.mobile, "pincode": user.pincode,
         "area": user.area, "city": user.city, "state": user.state,
         "profile_photo": user.profile_photo,
-        "is_google_user": user.google_id is not None,  # ← ADD THIS LINE ONLY
+        "is_google_user": user.google_id is not None,
         "profile_complete": bool(user.mobile and (user.city or user.pincode))
     }}), 200
 
@@ -536,7 +501,6 @@ def update_profile():
     if not user:
         return jsonify({"success": False, "message": "User not found."}), 404
     data = request.get_json()
-    # Only these fields are updatable - email/mobile locked
     if data.get("name"):    user.name    = data["name"].strip()
     if data.get("mobile"):
         existing = User.query.filter(
@@ -558,12 +522,13 @@ def update_profile():
                 return jsonify({"success": False, "message": "Enter a valid 6-digit pincode."}), 400
             user.pincode = pincode
         else:
-            user.pincode = None  # cleared manually — wipe stale pincode
+            user.pincode = None
     if data.get("area"):          user.area          = data["area"].strip()
     if data.get("city"):          user.city          = data["city"].strip()
     if data.get("state"):         user.state         = data["state"].strip()
     db.session.commit()
     sync_identity_to_conversations('user', user.id, user.name, user.profile_photo)
+    clear_public_cache()  # ← FIX: clear cached product pages so vendor name is fresh
     return jsonify({"success": True, "message": "Profile updated.", "user": {
         "id": user.id, "name": user.name, "email": user.email,
         "mobile": user.mobile, "pincode": user.pincode,
@@ -575,7 +540,6 @@ def update_profile():
 @limiter.limit("10 per hour")
 @jwt_required()
 def update_user_profile_photo():
-    """Multipart upload. Field name: 'photo'. Replaces existing S3 image if any."""
     user_id = _get_user_id()
     u = User.query.get(user_id)
     if not u:
@@ -596,6 +560,7 @@ def update_user_profile_photo():
     if old_url:
         delete_from_s3(old_url)
     sync_identity_to_conversations('user', u.id, u.name, u.profile_photo)
+    clear_public_cache()  # ← FIX: clear cached product pages
     return jsonify({"success": True, "message": "Profile photo updated.", "url": url}), 200
 
 
@@ -612,6 +577,7 @@ def delete_user_profile_photo():
         u.profile_photo = None
         db.session.commit()
     sync_identity_to_conversations('user', u.id, u.name, None)
+    clear_public_cache()  # ← FIX: clear cached product pages
     return jsonify({"success": True, "message": "Profile photo removed."}), 200
 
 @user_auth_bp.route("/wishlist/products", methods=["GET"])
@@ -646,7 +612,6 @@ def get_wishlist():
     for i in items:
         product = Product.query.get(i.product_id)
         if product is None or not product.is_active:
-            # Product deleted OR inactive - auto cleanup
             db.session.delete(i)
             continue
         wishlist_data.append({
@@ -691,11 +656,6 @@ def remove_from_wishlist(product_id):
 @limiter.limit("20 per minute")
 @jwt_required()
 def get_user_firebase_token():
-    """
-    Mints a Firebase custom token tied to this user's identity,
-    so the frontend can sign into Firestore and be recognized
-    by security rules as this specific user.
-    """
     user_id = _get_user_id()
     user = User.query.get(user_id)
     if not user:
@@ -730,25 +690,23 @@ def user_notify_chat():
         vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
         v = Vendor.query.get(vendor_id)
         if v and v.fcm_token:
-            sender_name = conv.get('user_name') or ''
-            if not sender_name:
-                user_id = int(conv.get('user_uid', '0').replace('user_', ''))
-                u = User.query.get(user_id)
-                sender_name = u.name if u else 'Someone'
-                if u:
-                    sync_identity_to_conversations('user', u.id, u.name, u.profile_photo)
+            # ← FIX: always pull name from SQL, not Firestore
+            user_id = int(conv.get('user_uid', '0').replace('user_', ''))
+            u = User.query.get(user_id)
+            sender_name = u.name if u else conv.get('user_name') or 'Someone'
+            if u and not conv.get('user_name'):
+                sync_identity_to_conversations('user', u.id, u.name, u.profile_photo)
             send_chat_notification(v.fcm_token, sender_name, text, conv_id, conv.get('user_photo'))
     else:
         user_id = int(conv.get('user_uid', '0').replace('user_', ''))
         u = User.query.get(user_id)
         if u and u.fcm_token:
-            sender_name = conv.get('vendor_name') or ''
-            if not sender_name:
-                vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
-                v = Vendor.query.get(vendor_id)
-                sender_name = v.name if v else 'Someone'
-                if v:
-                    sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
+            # ← FIX: always pull name from SQL, not Firestore
+            vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
+            v = Vendor.query.get(vendor_id)
+            sender_name = v.name if v else conv.get('vendor_name') or 'Someone'
+            if v and not conv.get('vendor_name'):
+                sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
             send_chat_notification(u.fcm_token, sender_name, text, conv_id, conv.get('vendor_photo'))
 
     return jsonify({'success': True}), 200
@@ -774,14 +732,6 @@ def save_user_fcm_token():
 @limiter.limit("3 per hour")
 @jwt_required()
 def delete_user_account():
-    """
-    For password accounts  → verify password first, then delete.
-    For Google accounts    → frontend re-authenticates with Google,
-                             sends firebase_uid for server to verify,
-                             then delete.
-    Body (password account):  { "password": "..." }
-    Body (Google account):    { "google_uid": "user_123" }
-    """
     try:
         user_id = _get_user_id()
         user = User.query.get(user_id)
@@ -790,13 +740,9 @@ def delete_user_account():
 
         data = request.get_json() or {}
 
-        # ── Google account: verify uid matches ───────────────────────────────
         if user.google_id:
-    # User is already authenticated via JWT cookie — that's sufficient proof.
-    # Just confirm google_id exists and proceed.
             pass
 
-        # ── Password account: verify password ────────────────────────────────
         else:
             password = data.get("password", "")
             if not password:
@@ -812,20 +758,15 @@ def delete_user_account():
                     "message": "Incorrect password."
                 }), 401
 
-        # ── Verified — proceed with deletion ─────────────────────────────────
-
-        # Delete profile photo from S3
         if user.profile_photo:
             delete_from_s3(user.profile_photo)
 
-        # Delete Firebase Auth user
         if user.google_id:
             try:
                 fb_auth.delete_user(f"user_{user.id}")
             except Exception:
                 pass
 
-                # Delete all related DB rows
         from models.vendor import ProductInquiry
         from sqlalchemy import text
         db.session.execute(text("DELETE FROM wishlists WHERE user_id = :uid"), {"uid": user_id})
@@ -834,7 +775,6 @@ def delete_user_account():
         db.session.execute(text("DELETE FROM product_inquiries WHERE user_id = :uid"), {"uid": user_id})
         db.session.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
 
-        # ── Delete Firestore conversations + messages ──────────────────────────
         try:
             import firebase_admin.firestore
             db_fs = firebase_admin.firestore.client()
@@ -849,7 +789,6 @@ def delete_user_account():
 
         db.session.commit()
 
-        # Clear auth cookies
         cookie_path = current_app.config.get("API_URL_PREFIX", "") + "/auth/user/"
         response = make_response(jsonify({
             "success": True,
