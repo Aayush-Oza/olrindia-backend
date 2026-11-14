@@ -1,6 +1,6 @@
 # OLR India - Vendor Model
 # Represents the vendors table in MySQL
-# Vendors = businesses/individuals who list products for rent
+# Vendors = businesses/individuals who list products for rent OR sell
 
 import secrets
 from datetime import datetime, timedelta
@@ -8,10 +8,6 @@ from extensions import db
 
 
 # ── PLAN CONFIG ────────────────────────────────────────────────────────────
-# Single source of truth for plan limits + ranking weight + badge.
-# priority_score: used to sort listings (higher = shown first)
-# badge: shown next to vendor/product on frontend ("verified" = blue tick style,
-#        "featured" = gold/star style). None = no badge.
 PLAN_LIMITS = {
     "free":           {"max_active_posts": 5,    "priority_score": 0, "badge": None,
                        "label": "Free",           "price": 0,    "duration_days": 30,
@@ -35,6 +31,10 @@ PLAN_LIMITS = {
                        "label": "Premium Yearly", "price": 9999, "duration_days": 365,
                        "billing_cycle": "yearly"},
 }
+
+# ── ITEM CONDITION OPTIONS (for sell listings) ─────────────────────────────
+ITEM_CONDITIONS = ["New", "Used - Like New", "Used - Good", "Used - Fair"]
+
 
 class Vendor(db.Model):
     __tablename__ = "vendors"
@@ -60,7 +60,7 @@ class Vendor(db.Model):
     longitude = db.Column(db.Float, nullable=True)
 
     # ── Profile ───────────────────────────────────────────────────────────────
-    profile_photo = db.Column(db.String(500), nullable=True)  # S3 URL
+    profile_photo = db.Column(db.String(500), nullable=True)
 
     # ── Account Status ────────────────────────────────────────────────────────
     is_verified = db.Column(db.Boolean, default=False)
@@ -68,30 +68,26 @@ class Vendor(db.Model):
     role = db.Column(db.String(20), default="vendor")
 
     # ── Moderation / Strikes ──────────────────────────────────────────────────
-    # Incremented each time admin removes one of this vendor's products for
-    # a policy violation. At 3, vendor is auto-suspended (is_active=False)
-    # and locked to read-only dashboard until admin manually reactivates.
     strike_count = db.Column(db.Integer, default=0, nullable=False)
     suspended_at = db.Column(db.DateTime, nullable=True)
-    suspended_reason = db.Column(db.String(50), nullable=True)  # e.g. "strikes"
+    suspended_reason = db.Column(db.String(50), nullable=True)
 
     # ── Subscription ──────────────────────────────────────────────────────────
-    # starter / growth / premium = paid tiers, see PLAN_LIMITS above
     subscription_plan = db.Column(
         db.Enum("free", "starter", "growth", "premium",
                 "starter_yearly", "growth_yearly", "premium_yearly"),
         default="free",
         nullable=False
     )
-    # For paid plans: when the current billing cycle ends.
     subscription_expires_at = db.Column(db.DateTime, nullable=True)
     pending_plan = db.Column(db.String(20), nullable=True)
+
     # ── Social Login ──────────────────────────────────────────────────────────
     google_id = db.Column(db.String(200), unique=True, nullable=True)
 
     # ── FCM ───────────────────────────────────────────────────────────────────
     fcm_token = db.Column(db.String(500), nullable=True)
-    
+
     # ── Timestamps ────────────────────────────────────────────────────────────
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -100,8 +96,6 @@ class Vendor(db.Model):
     PAID_PLANS = ("starter", "growth", "premium", "starter_yearly", "growth_yearly", "premium_yearly")
 
     def plan_config(self):
-        """Returns the PLAN_LIMITS dict for this vendor's current effective plan.
-        If a paid/trial plan has expired, treat as 'free' until renewed."""
         plan = self.subscription_plan or "free"
         if plan in self.PAID_PLANS:
             if self.subscription_expires_at is None or datetime.utcnow() > self.subscription_expires_at:
@@ -116,12 +110,10 @@ class Vendor(db.Model):
         return plan
 
     def effective_base_plan(self):
-        """Returns base plan name without _yearly suffix. e.g. starter_yearly → starter"""
         plan = self.effective_plan_name()
         return plan.replace("_yearly", "")
 
     def is_subscription_active(self):
-        """True only for a currently-paid (non-trial, non-free) active plan."""
         if self.subscription_plan not in ("starter", "growth", "premium",
                                           "starter_yearly", "growth_yearly", "premium_yearly"):
             return False
@@ -130,22 +122,20 @@ class Vendor(db.Model):
         return datetime.utcnow() < self.subscription_expires_at
 
     def badge(self):
-        """Returns 'verified', 'featured', or None - based on effective plan."""
         return self.plan_config()["badge"]
 
     def has_verified_badge(self):
         return self.badge() is not None
-    
+
     def is_suspended_for_strikes(self):
         return not self.is_active and self.suspended_reason in ("strikes", "admin_manual")
 
     def priority_score(self):
-        """Used to sort product listings - higher shows first."""
         return self.plan_config()["priority_score"]
 
     def max_active_posts(self):
         return self.plan_config()["max_active_posts"]
-    
+
     def days_until_expiry(self):
         if self.subscription_plan == "free":
             return None
@@ -155,7 +145,6 @@ class Vendor(db.Model):
         total_seconds = delta.total_seconds()
         if total_seconds <= 0:
             return 0
-        # Return fractional days so callers can distinguish < 1 day
         return total_seconds / 86400
 
     def hours_until_expiry(self):
@@ -170,7 +159,6 @@ class Vendor(db.Model):
         return int(total_seconds // 3600)
 
     def expiry_label(self):
-        """Human-readable label: '2 days left', '5 hours left', 'Expired'"""
         if self.subscription_plan == "free":
             return None
         if not self.subscription_expires_at:
@@ -194,7 +182,7 @@ class Vendor(db.Model):
         if not self.subscription_expires_at:
             return False
         delta = self.subscription_expires_at - datetime.utcnow()
-        return delta.total_seconds() <= 5 * 86400  # 5 days
+        return delta.total_seconds() <= 5 * 86400
 
     def active_product_count(self):
         return Product.query.filter_by(vendor_id=self.id, is_active=True).count()
@@ -211,8 +199,8 @@ class Vendor(db.Model):
             )
         return True, None
 
+
 class VendorVerificationToken(db.Model):
-    """Magic link tokens for vendor email verification"""
     __tablename__ = "vendor_verification_tokens"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -235,14 +223,10 @@ class VendorVerificationToken(db.Model):
         )
 
     def is_valid(self):
-        return (
-            not self.is_used and
-            datetime.utcnow() < self.expires_at
-        )
+        return not self.is_used and datetime.utcnow() < self.expires_at
 
 
 class VendorPasswordResetToken(db.Model):
-    """Password reset link tokens for vendors"""
     __tablename__ = "vendor_password_reset_tokens"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -265,10 +249,7 @@ class VendorPasswordResetToken(db.Model):
         )
 
     def is_valid(self):
-        return (
-            not self.is_used and
-            datetime.utcnow() < self.expires_at
-        )
+        return not self.is_used and datetime.utcnow() < self.expires_at
 
 
 class Product(db.Model):
@@ -276,6 +257,16 @@ class Product(db.Model):
 
     id               = db.Column(db.Integer, primary_key=True, autoincrement=True)
     vendor_id        = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False)
+
+    # ── Listing Type ──────────────────────────────────────────────────────────
+    # "rent"  → traditional rental listing (per hour/day/km/month)
+    # "sell"  → second-hand / outright sale listing (selling_price + condition)
+    listing_type = db.Column(
+        db.Enum("rent", "sell"),
+        default="rent",
+        nullable=False
+    )
+
     category = db.Column(db.Enum(
         "Construction Equipment",
         "Furniture & Home Appliances",
@@ -301,42 +292,47 @@ class Product(db.Model):
         "Office and Business Essentials"
     ), nullable=False)
 
-    subcategory = db.Column(db.String(100), nullable=True)
+    subcategory      = db.Column(db.String(100), nullable=True)
     name             = db.Column(db.String(200), nullable=False)
     description      = db.Column(db.Text, nullable=True)
 
-    # At least ONE of these three is required (enforced in route, not DB) -
-    # vendor chooses hour and/or km and/or day and/or month, none individually mandatory.
+    # ── Rent fields (only used when listing_type = "rent") ────────────────────
+    # At least ONE required for rent listings (enforced in route, not DB)
     rent_per_hour    = db.Column(db.Numeric(10, 2), nullable=True)
-    rent_per_km       = db.Column(db.Numeric(10, 2), nullable=True)
+    rent_per_km      = db.Column(db.Numeric(10, 2), nullable=True)
     rent_per_day     = db.Column(db.Numeric(10, 2), nullable=True)
     rent_per_month   = db.Column(db.Numeric(10, 2), nullable=True)
     security_deposit = db.Column(db.Numeric(10, 2), nullable=True)
 
-    # Location (copied from vendor on create, editable)
+    # ── Sell fields (only used when listing_type = "sell") ────────────────────
+    # selling_price required for sell listings (enforced in route, not DB)
+    selling_price    = db.Column(db.Numeric(10, 2), nullable=True)
+    # condition: New / Used - Like New / Used - Good / Used - Fair
+    condition        = db.Column(db.String(20), nullable=True)
+
+    # ── Location ──────────────────────────────────────────────────────────────
     pincode          = db.Column(db.String(6),   nullable=True)
     state            = db.Column(db.String(100), nullable=True)
     city             = db.Column(db.String(100), nullable=True)
     area             = db.Column(db.String(200), nullable=True)
 
-    # Up to 5 image URLs from S3 - original size, no crop (handled in upload util)
+    # ── Images (up to 5, S3 URLs) ─────────────────────────────────────────────
     image1           = db.Column(db.String(500), nullable=True)
     image2           = db.Column(db.String(500), nullable=True)
     image3           = db.Column(db.String(500), nullable=True)
     image4           = db.Column(db.String(500), nullable=True)
     image5           = db.Column(db.String(500), nullable=True)
 
-    # Share link - short unique slug, e.g. /p/aB3xK9
+    # ── Share slug ────────────────────────────────────────────────────────────
     share_slug       = db.Column(db.String(20), unique=True, nullable=True)
 
-    # Stats
+    # ── Stats / Status ────────────────────────────────────────────────────────
     click_count      = db.Column(db.Integer, default=0, nullable=False)
     is_active        = db.Column(db.Boolean, default=True)
-    admin_reviewed   = db.Column(db.Boolean, default=False ,nullable=False)  
-    deactivated_by = db.Column(db.Enum("vendor", "admin", "plan_expired"), nullable=True, default=None)
+    admin_reviewed   = db.Column(db.Boolean, default=False, nullable=False)
+    deactivated_by   = db.Column(db.Enum("vendor", "admin", "plan_expired"), nullable=True, default=None)
     edit_deadline    = db.Column(db.DateTime, nullable=True)
-    # Chat/availability tracking - set when a user starts a chat about this
-    # product, used to periodically nudge vendor "still available?"
+
     last_inquiry_at         = db.Column(db.DateTime, nullable=True)
     last_availability_check = db.Column(db.DateTime, nullable=True)
 
@@ -344,6 +340,7 @@ class Product(db.Model):
     updated_at       = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     vendor = db.relationship("Vendor", backref="products")
+
     def is_admin_flagged(self):
         return self.deactivated_by == "admin"
 
@@ -355,7 +352,7 @@ class Product(db.Model):
             return None
         delta = self.edit_deadline - datetime.utcnow()
         return max(0, delta.days)
-    
+
     def _get_latest_strike_reason(self):
         if self.deactivated_by != "admin":
             return None
@@ -364,13 +361,12 @@ class Product(db.Model):
             product_id=self.id
         ).order_by(VendorStrike.created_at.desc()).first()
         return strike.reason if strike else None
-    
+
     def image_urls(self):
         return [u for u in [self.image1, self.image2, self.image3,
                              self.image4, self.image5] if u]
-    
+
     def is_newest_three(self):
-        """True if this product is among the 3 newest active ones for its vendor."""
         top3 = Product.query.filter_by(
             vendor_id=self.vendor_id,
             is_active=True
@@ -383,43 +379,51 @@ class Product(db.Model):
 
     def to_dict(self, include_vendor_badge=False):
         data = {
-            "id": self.id, "name": self.name, "description": self.description,
-            "category": self.category, "subcategory": self.subcategory,
-            "rent_per_hour": str(self.rent_per_hour) if self.rent_per_hour else None,
-            "rent_per_km": str(self.rent_per_km) if self.rent_per_km else None,
-            "rent_per_day": str(self.rent_per_day) if self.rent_per_day else None,
-            "rent_per_month": str(self.rent_per_month) if self.rent_per_month else None,
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "listing_type": self.listing_type or "rent",
+            "category": self.category,
+            "subcategory": self.subcategory,
+            # ── rent fields ──
+            "rent_per_hour":    str(self.rent_per_hour)    if self.rent_per_hour    else None,
+            "rent_per_km":      str(self.rent_per_km)      if self.rent_per_km      else None,
+            "rent_per_day":     str(self.rent_per_day)     if self.rent_per_day     else None,
+            "rent_per_month":   str(self.rent_per_month)   if self.rent_per_month   else None,
             "security_deposit": str(self.security_deposit) if self.security_deposit else None,
-            "pincode": self.pincode, "state": self.state,
-            "city": self.city, "area": self.area,
-            "images": self.image_urls(),
-            "share_slug": self.share_slug,
-            "click_count": self.click_count,
-            "is_active": self.is_active,
-            "deactivated_by": self.deactivated_by,
-            "strike_reason": self._get_latest_strike_reason(),
-            "edit_deadline": str(self.edit_deadline) if self.edit_deadline else None,
+            # ── sell fields ──
+            "selling_price": str(self.selling_price) if self.selling_price else None,
+            "condition":     self.condition,
+            # ── location ──
+            "pincode": self.pincode,
+            "state":   self.state,
+            "city":    self.city,
+            "area":    self.area,
+            # ── meta ──
+            "images":             self.image_urls(),
+            "share_slug":         self.share_slug,
+            "click_count":        self.click_count,
+            "is_active":          self.is_active,
+            "deactivated_by":     self.deactivated_by,
+            "strike_reason":      self._get_latest_strike_reason(),
+            "edit_deadline":      str(self.edit_deadline) if self.edit_deadline else None,
             "edit_days_remaining": self.edit_days_remaining(),
-            "created_at": str(self.created_at),
+            "created_at":         str(self.created_at),
         }
         if include_vendor_badge and self.vendor:
             data["vendor_badge"] = self.vendor.badge()
-            data["vendor_name"] = self.vendor.name
+            data["vendor_name"]  = self.vendor.name
         return data
 
 
 class ProductInquiry(db.Model):
-    """Logs every time a user starts a chat/inquiry on a product.
-    Used to track which active listings have buyer interest, so we can
-    periodically prompt the vendor to confirm if it's still available
-    (and auto-deactivate stale ones from the public listing)."""
     __tablename__ = "product_inquiries"
 
-    id          = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    product_id  = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=False)
-    vendor_id   = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False)
-    user_id     = db.Column(db.Integer, nullable=False)  # FK to users table
-    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=False)
+    vendor_id  = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False)
+    user_id    = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     product = db.relationship("Product", backref="inquiries")
 
@@ -434,7 +438,7 @@ PRODUCT_CATEGORIES = {
         "Crane (Mobile / Tower)",
         "Road Roller / Compactor",
         "Generator (site use)",
-        "Dump Truck / Tipper"
+        "Dump Truck / Tipper",
         "Portable Cabins"
     ],
 
@@ -624,7 +628,7 @@ PRODUCT_CATEGORIES = {
         "Industrial Weighing Scale",
         "Injection Moulding Machine"
     ],
-    
+
     "Musical Instruments": [
         "Acoustic Guitar",
         "Electric Guitar",
@@ -634,6 +638,7 @@ PRODUCT_CATEGORIES = {
         "Flute",
         "Saxophone"
     ],
+
     "Office and Business Essentials": [
         "Laptop / MacBook",
         "Projector & Screen",
@@ -670,18 +675,17 @@ CATEGORY_PRICING_FIELDS = {
     "Office and Business Essentials":     ["per_hour", "per_day", "per_month"],
 }
 
+
 class VendorStrike(db.Model):
-    """Log of every product removal / strike issued to a vendor.
-    Kept even after unflagging, for admin history reference."""
     __tablename__ = "vendor_strikes"
 
-    id           = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    vendor_id    = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False)
-    admin_id     = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=False)
-    product_id   = db.Column(db.Integer, nullable=True)  # nullable - product itself gets deleted
-    product_name = db.Column(db.String(200), nullable=True)  # snapshot, in case product is deleted
-    reason       = db.Column(db.Text, nullable=False)
-    strike_number = db.Column(db.Integer, nullable=False)  # 1, 2, or 3 at time of issue
-    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    id            = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    vendor_id     = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False)
+    admin_id      = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=False)
+    product_id    = db.Column(db.Integer, nullable=True)
+    product_name  = db.Column(db.String(200), nullable=True)
+    reason        = db.Column(db.Text, nullable=False)
+    strike_number = db.Column(db.Integer, nullable=False)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
 
     vendor = db.relationship("Vendor", backref="strikes")

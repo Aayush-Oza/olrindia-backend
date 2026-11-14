@@ -10,10 +10,10 @@ from utils.razorpay_helper import create_order, verify_signature, fetch_payment
 from extensions import db
 from models.vendor import (
     Vendor, VendorVerificationToken, VendorPasswordResetToken,
-    Product, PRODUCT_CATEGORIES, PLAN_LIMITS
+    Product, PRODUCT_CATEGORIES, PLAN_LIMITS, ITEM_CONDITIONS
 )
 from utils.email import send_verification_email, send_password_reset_email
-from utils.token import generate_tokens, generate_access_token,_is_mobile
+from utils.token import generate_tokens, generate_access_token, _is_mobile
 from utils.firebase_auth import verify_google_token
 from utils.s3 import compress_and_upload, delete_from_s3
 from utils.sms import send_verification_sms
@@ -102,16 +102,16 @@ def register():
             if not is_valid:
                 return jsonify({"success": False, "message": error}), 400
 
-        name          = data["name"].strip()
-        email         = data["email"].strip().lower()
-        mobile        = data["mobile"].strip()
-        gst_number    = data.get("gst_number", "").strip() or None
-        pincode       = data["pincode"].strip()
+        name       = data["name"].strip()
+        email      = data["email"].strip().lower()
+        mobile     = data["mobile"].strip()
+        gst_number = data.get("gst_number", "").strip() or None
+        pincode    = data["pincode"].strip()
         if pincode and (not pincode.isdigit() or len(pincode) != 6):
             return jsonify({"success": False, "message": "Enter a valid 6-digit pincode."}), 400
-        city          = data["city"].strip()
-        state         = data["state"].strip()
-        area          = data.get("area", "").strip() or None
+        city  = data["city"].strip()
+        state = data["state"].strip()
+        area  = data.get("area", "").strip() or None
 
         if Vendor.query.filter_by(email=email).first():
             return jsonify({"success": False, "message": "An account with this email already exists."}), 409
@@ -380,13 +380,13 @@ def update_profile():
     suspended = check_suspended(v)
     if suspended: return suspended
     data = request.get_json()
-    if data.get("name"):          v.name          = data["name"].strip()
+    if data.get("name"):    v.name = data["name"].strip()
     if data.get("mobile"):
         existing = Vendor.query.filter(Vendor.mobile == data["mobile"].strip(), Vendor.id != v.id).first()
         if existing:
             return jsonify({"success": False, "message": "Mobile already linked to another account."}), 409
         v.mobile = data["mobile"].strip()
-    if data.get("gst_number"):    v.gst_number    = data["gst_number"].strip()
+    if data.get("gst_number"): v.gst_number = data["gst_number"].strip()
     if "pincode" in data:
         pincode = (data["pincode"] or "").strip()
         if pincode:
@@ -395,12 +395,12 @@ def update_profile():
             v.pincode = pincode
         else:
             v.pincode = None
-    if data.get("area"):          v.area          = data["area"].strip()
-    if data.get("city"):          v.city          = data["city"].strip()
-    if data.get("state"):         v.state         = data["state"].strip()
+    if data.get("area"):  v.area  = data["area"].strip()
+    if data.get("city"):  v.city  = data["city"].strip()
+    if data.get("state"): v.state = data["state"].strip()
     db.session.commit()
     sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
-    clear_public_cache()  # ← FIX: bust cached product pages with stale vendor name
+    clear_public_cache()
     return jsonify({"success": True, "message": "Profile updated."}), 200
 
 
@@ -423,7 +423,7 @@ def update_profile_photo():
     db.session.commit()
     if old_url: delete_from_s3(old_url)
     sync_identity_to_conversations('vendor', v.id, v.name, v.profile_photo)
-    clear_public_cache()  # ← FIX: bust cached product pages with stale vendor photo
+    clear_public_cache()
     return jsonify({"success": True, "message": "Profile photo updated.", "url": url}), 200
 
 @vendor_auth_bp.route("/profile/photo", methods=["DELETE"])
@@ -440,7 +440,7 @@ def delete_profile_photo():
         v.profile_photo = None
         db.session.commit()
     sync_identity_to_conversations('vendor', v.id, v.name, None)
-    clear_public_cache()  # ← FIX: bust cached product pages
+    clear_public_cache()
     return jsonify({"success": True, "message": "Profile photo removed."}), 200
 
 
@@ -483,6 +483,13 @@ def get_categories():
 def get_plans():
     return jsonify({"success": True, "plans": PLAN_LIMITS}), 200
 
+@vendor_auth_bp.route("/conditions", methods=["GET"])
+def get_conditions():
+    """Returns available item condition options for sell listings."""
+    return jsonify({"success": True, "conditions": ITEM_CONDITIONS}), 200
+
+
+# ── ADD PRODUCT ───────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/products", methods=["POST"])
 @limiter.limit("20 per hour")
 @jwt_required()
@@ -499,18 +506,44 @@ def add_product():
     name = request.form.get("name", "").strip()
     if not name: return jsonify({"success": False, "message": "name is required."}), 400
 
-    rent_per_hour_raw  = request.form.get("rent_per_hour", "").strip()
-    rent_per_km_raw    = request.form.get("rent_per_km", "").strip()
-    rent_per_day_raw   = request.form.get("rent_per_day", "").strip()
-    rent_per_month_raw = request.form.get("rent_per_month", "").strip()
-    if not rent_per_hour_raw and not rent_per_km_raw and not rent_per_day_raw and not rent_per_month_raw:
-        return jsonify({"success": False, "message": "Please provide at least one rent rate (per hour, km, day, or month)."}), 400
+    # ── listing type ──────────────────────────────────────────────────────────
+    listing_type = request.form.get("listing_type", "rent").strip().lower()
+    if listing_type not in ("rent", "sell"):
+        return jsonify({"success": False, "message": "listing_type must be 'rent' or 'sell'."}), 400
 
+    # ── rent fields (only required for rent listings) ─────────────────────────
+    rent_per_hour_raw  = request.form.get("rent_per_hour",  "").strip()
+    rent_per_km_raw    = request.form.get("rent_per_km",    "").strip()
+    rent_per_day_raw   = request.form.get("rent_per_day",   "").strip()
+    rent_per_month_raw = request.form.get("rent_per_month", "").strip()
+
+    if listing_type == "rent":
+        if not rent_per_hour_raw and not rent_per_km_raw and not rent_per_day_raw and not rent_per_month_raw:
+            return jsonify({"success": False, "message": "Please provide at least one rent rate (per hour, km, day, or month)."}), 400
+
+    # ── sell fields (only required for sell listings) ─────────────────────────
+    selling_price_raw = request.form.get("selling_price", "").strip()
+    condition         = request.form.get("condition", "").strip() or None
+
+    if listing_type == "sell":
+        if not selling_price_raw:
+            return jsonify({"success": False, "message": "selling_price is required for sell listings."}), 400
+        try:
+            selling_price_val = float(selling_price_raw)
+            if selling_price_val <= 0:
+                raise ValueError
+        except ValueError:
+            return jsonify({"success": False, "message": "selling_price must be a positive number."}), 400
+        if condition and condition not in ITEM_CONDITIONS:
+            return jsonify({"success": False, "message": f"condition must be one of: {', '.join(ITEM_CONDITIONS)}"}), 400
+
+    # ── category ──────────────────────────────────────────────────────────────
     category = request.form.get("category", "").strip()
     if category not in PRODUCT_CATEGORIES:
         return jsonify({"success": False, "message": "Invalid category."}), 400
     subcategory = request.form.get("subcategory", "").strip() or None
 
+    # ── images ────────────────────────────────────────────────────────────────
     urls = []
     for i in range(1, 6):
         f = request.files.get(f"image{i}")
@@ -526,18 +559,26 @@ def add_product():
         share_slug = Product.generate_share_slug()
 
     p = Product(
-        vendor_id=vendor_id, name=name,
+        vendor_id=vendor_id,
+        listing_type=listing_type,
+        name=name,
         description=request.form.get("description", "").strip() or None,
-        rent_per_hour=float(rent_per_hour_raw) if rent_per_hour_raw else None,
-        rent_per_km=float(rent_per_km_raw) if rent_per_km_raw else None,
-        rent_per_day=float(rent_per_day_raw) if rent_per_day_raw else None,
-        rent_per_month=float(rent_per_month_raw) if rent_per_month_raw else None,
-        security_deposit=float(request.form.get("security_deposit")) if request.form.get("security_deposit") else None,
+        # rent fields — None for sell listings
+        rent_per_hour=float(rent_per_hour_raw)   if rent_per_hour_raw  and listing_type == "rent" else None,
+        rent_per_km=float(rent_per_km_raw)        if rent_per_km_raw    and listing_type == "rent" else None,
+        rent_per_day=float(rent_per_day_raw)      if rent_per_day_raw   and listing_type == "rent" else None,
+        rent_per_month=float(rent_per_month_raw)  if rent_per_month_raw and listing_type == "rent" else None,
+        security_deposit=float(request.form.get("security_deposit")) if request.form.get("security_deposit") and listing_type == "rent" else None,
+        # sell fields — None for rent listings
+        selling_price=float(selling_price_raw) if listing_type == "sell" else None,
+        condition=condition if listing_type == "sell" else None,
+        # location
         pincode=request.form.get("pincode") or v.pincode,
-        state=request.form.get("state") or v.state,
-        city=request.form.get("city") or v.city,
-        area=request.form.get("area") or v.area,
-        category=category, subcategory=subcategory,
+        state=request.form.get("state")     or v.state,
+        city=request.form.get("city")       or v.city,
+        area=request.form.get("area")       or v.area,
+        category=category,
+        subcategory=subcategory,
         image1=urls[0], image2=urls[1], image3=urls[2],
         image4=urls[3], image5=urls[4],
         share_slug=share_slug,
@@ -548,6 +589,7 @@ def add_product():
     return jsonify({"success": True, "message": "Product listed!", "product": p.to_dict()}), 201
 
 
+# ── UPDATE PRODUCT ────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/products/<int:product_id>", methods=["PUT"])
 @limiter.limit("30 per hour")
 @jwt_required()
@@ -565,19 +607,47 @@ def update_product(product_id):
         try: return float(val)
         except: return None
 
-    if 'name' in data and data['name']:         p.name             = data['name'].strip()
-    if 'description' in data:                   p.description      = data['description'] or None
-    if 'rent_per_hour' in data:                  p.rent_per_hour    = to_float_or_none(data['rent_per_hour'])
-    if 'rent_per_km' in data:                    p.rent_per_km      = to_float_or_none(data['rent_per_km'])
-    if 'rent_per_day' in data:                  p.rent_per_day     = to_float_or_none(data['rent_per_day'])
-    if 'rent_per_month' in data:                p.rent_per_month   = to_float_or_none(data['rent_per_month'])
-    if 'security_deposit' in data:              p.security_deposit = to_float_or_none(data['security_deposit'])
-    if 'category' in data and data['category']: p.category         = data['category']
-    if 'subcategory' in data:                   p.subcategory      = data['subcategory'] or None
-    if 'pincode' in data:                       p.pincode          = data['pincode'] or None
-    if 'area' in data:                          p.area             = data['area'] or None
-    if 'city' in data:                          p.city             = data['city'] or None
-    if 'state' in data:                         p.state            = data['state'] or None
+    # ── listing_type change is NOT allowed after creation ─────────────────────
+    # (vendor would need to delete and re-create if they want to switch type)
+    listing_type = p.listing_type  # keep existing
+
+    if 'name' in data and data['name']:
+        p.name = data['name'].strip()
+    if 'description' in data:
+        p.description = data['description'] or None
+    if 'category' in data and data['category']:
+        p.category = data['category']
+    if 'subcategory' in data:
+        p.subcategory = data['subcategory'] or None
+    if 'pincode' in data: p.pincode = data['pincode'] or None
+    if 'area' in data:    p.area    = data['area']    or None
+    if 'city' in data:    p.city    = data['city']    or None
+    if 'state' in data:   p.state   = data['state']   or None
+
+    if listing_type == "rent":
+        # update rent-specific fields
+        if 'rent_per_hour' in data:   p.rent_per_hour    = to_float_or_none(data['rent_per_hour'])
+        if 'rent_per_km' in data:     p.rent_per_km      = to_float_or_none(data['rent_per_km'])
+        if 'rent_per_day' in data:    p.rent_per_day     = to_float_or_none(data['rent_per_day'])
+        if 'rent_per_month' in data:  p.rent_per_month   = to_float_or_none(data['rent_per_month'])
+        if 'security_deposit' in data: p.security_deposit = to_float_or_none(data['security_deposit'])
+        # validate at least one rent rate remains set
+        if not any([p.rent_per_hour, p.rent_per_km, p.rent_per_day, p.rent_per_month]):
+            return jsonify({"success": False, "message": "At least one rent rate is required."}), 400
+
+    elif listing_type == "sell":
+        # update sell-specific fields
+        if 'selling_price' in data:
+            sp = to_float_or_none(data['selling_price'])
+            if sp is None or sp <= 0:
+                return jsonify({"success": False, "message": "selling_price must be a positive number."}), 400
+            p.selling_price = sp
+        if 'condition' in data:
+            cond = (data['condition'] or "").strip() or None
+            if cond and cond not in ITEM_CONDITIONS:
+                return jsonify({"success": False, "message": f"condition must be one of: {', '.join(ITEM_CONDITIONS)}"}), 400
+            p.condition = cond
+
     if p.deactivated_by == "admin":
         p.is_active = True
         p.deactivated_by = None
@@ -588,6 +658,7 @@ def update_product(product_id):
     return jsonify({"success": True, "message": "Product updated.", "product": p.to_dict()}), 200
 
 
+# ── PRODUCT STATUS ────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/products/<int:product_id>/status", methods=["PUT"])
 @limiter.limit("30 per minute")
 @jwt_required()
@@ -616,6 +687,7 @@ def update_product_status(product_id):
     return jsonify({"success": True, "message": "Product status updated.", "product": p.to_dict()}), 200
 
 
+# ── PRODUCT IMAGE SLOTS ───────────────────────────────────────────────────────
 @vendor_auth_bp.route("/products/<int:product_id>/image/<int:slot>", methods=["PUT"])
 @limiter.limit("20 per hour")
 @jwt_required()
@@ -657,6 +729,7 @@ def delete_product_image(product_id, slot):
     return jsonify({"success": True, "message": "Image deleted."}), 200
 
 
+# ── DELETE PRODUCT ────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/products/<int:product_id>", methods=["DELETE"])
 @limiter.limit("20 per hour")
 @jwt_required()
@@ -682,6 +755,7 @@ def record_click(product_id):
     p.click_count += 1
     db.session.commit()
     return jsonify({"success": True}), 200
+
 
 @vendor_auth_bp.route("/firebase-token", methods=["POST"])
 @limiter.limit("20 per minute")
@@ -714,7 +788,7 @@ def subscribe():
     if plan not in ("starter", "growth", "premium"):
         return jsonify({"success": False, "message": "Invalid plan. Choose starter, growth, or premium."}), 400
 
-    plan_key = plan if billing_cycle == "monthly" else f"{plan}_yearly"
+    plan_key   = plan if billing_cycle == "monthly" else f"{plan}_yearly"
     plan_info  = PLAN_LIMITS[plan_key]
     amount_inr = plan_info["price"]
     plan = plan_key
@@ -749,15 +823,16 @@ def subscribe():
     db.session.commit()
 
     return jsonify({
-        "success":    True,
-        "order_id":   order["id"],
-        "amount":     order["amount"],
-        "currency":   order["currency"],
-        "key_id":     current_app.config["RAZORPAY_KEY_ID"],
-        "vendor":     {"name": v.name, "email": v.email},
-        "plan_label": plan_info["label"],
+        "success":       True,
+        "order_id":      order["id"],
+        "amount":        order["amount"],
+        "currency":      order["currency"],
+        "key_id":        current_app.config["RAZORPAY_KEY_ID"],
+        "vendor":        {"name": v.name, "email": v.email},
+        "plan_label":    plan_info["label"],
         "billing_cycle": billing_cycle,
     }), 200
+
 
 # ── PAYMENT VERIFY ────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/payment/verify", methods=["POST"])
@@ -955,6 +1030,8 @@ def razorpay_webhook():
     db.session.commit()
     return jsonify({"success": True}), 200
 
+
+# ── BILLING ───────────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/billing", methods=["GET"])
 @limiter.limit("30 per minute")
 @jwt_required()
@@ -967,18 +1044,13 @@ def get_billing():
     ).order_by(VendorPayment.period_start.asc()).all()
 
     history = []
-    past_added = 0
-
     for p in all_payments:
-        period_end = p.period_end
+        period_end   = p.period_end
         period_start = p.period_start
 
         is_current = period_start and period_end and period_start <= now <= period_end
         is_future  = period_start and period_start > now
         is_past    = period_end and period_end < now
-
-        if is_past:
-            past_added += 1
 
         history.append({
             "plan":         p.plan,
@@ -992,7 +1064,7 @@ def get_billing():
         })
 
     past_seen = 0
-    filtered = []
+    filtered  = []
     for item in reversed(history):
         if item["is_past"]:
             if past_seen < 1:
@@ -1000,11 +1072,12 @@ def get_billing():
                 past_seen += 1
         else:
             filtered.append(item)
-
     filtered = list(reversed(filtered))
 
     return jsonify({"success": True, "billing": filtered}), 200
 
+
+# ── CHAT NOTIFY ───────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/chat/notify", methods=["POST"])
 @jwt_required()
 def vendor_notify_chat():
@@ -1025,7 +1098,6 @@ def vendor_notify_chat():
         vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
         v = Vendor.query.get(vendor_id)
         if v and v.fcm_token:
-            # ← FIX: always pull name from SQL, not Firestore
             user_id = int(conv.get('user_uid', '0').replace('user_', ''))
             u = User.query.get(user_id)
             sender_name = u.name if u else conv.get('user_name') or 'Someone'
@@ -1036,7 +1108,6 @@ def vendor_notify_chat():
         user_id = int(conv.get('user_uid', '0').replace('user_', ''))
         u = User.query.get(user_id)
         if u and u.fcm_token:
-            # ← FIX: always pull name from SQL, not Firestore
             vendor_id = int(conv.get('vendor_uid', '0').replace('vendor_', ''))
             v = Vendor.query.get(vendor_id)
             sender_name = v.name if v else conv.get('vendor_name') or 'Someone'
@@ -1046,6 +1117,8 @@ def vendor_notify_chat():
 
     return jsonify({'success': True}), 200
 
+
+# ── FCM TOKEN ─────────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/fcm-token", methods=["POST"])
 @limiter.limit("20 per minute")
 @jwt_required()
@@ -1054,7 +1127,7 @@ def save_fcm_token():
     v = Vendor.query.get(vendor_id)
     if not v:
         return jsonify({"success": False}), 404
-    data = request.get_json() or {}
+    data  = request.get_json() or {}
     token = data.get("fcm_token", "").strip()
     if not token:
         return jsonify({"success": False, "message": "Missing token"}), 400
@@ -1062,7 +1135,8 @@ def save_fcm_token():
     db.session.commit()
     return jsonify({"success": True}), 200
 
-# ── DELETE ACCOUNT ────────────────────────────────────────────
+
+# ── DELETE ACCOUNT ────────────────────────────────────────────────────────────
 @vendor_auth_bp.route("/delete-account", methods=["POST"])
 @limiter.limit("3 per hour")
 @jwt_required()
@@ -1075,23 +1149,14 @@ def delete_vendor_account():
 
         data = request.get_json() or {}
 
-        if v.google_id:
-            pass
-
-        else:
+        if not v.google_id:
             password = data.get("password", "")
             if not password:
-                return jsonify({
-                    "success": False,
-                    "message": "Please enter your password to confirm deletion."
-                }), 400
+                return jsonify({"success": False, "message": "Please enter your password to confirm deletion."}), 400
             if not v.password_hash or not bcrypt.checkpw(
                 password.encode("utf-8"), v.password_hash.encode("utf-8")
             ):
-                return jsonify({
-                    "success": False,
-                    "message": "Incorrect password."
-                }), 401
+                return jsonify({"success": False, "message": "Incorrect password."}), 401
 
         products = Product.query.filter_by(vendor_id=vendor_id).all()
         for p in products:
@@ -1107,21 +1172,18 @@ def delete_vendor_account():
             except Exception:
                 pass
 
-        from models.vendor import VendorStrike
-        from models.payment import VendorPayment
         from sqlalchemy import text
-
-        db.session.execute(text("DELETE FROM product_inquiries WHERE vendor_id = :vid"), {"vid": vendor_id})
-        db.session.execute(text("DELETE FROM vendor_strikes WHERE vendor_id = :vid"), {"vid": vendor_id})
-        db.session.execute(text("DELETE FROM vendor_payments WHERE vendor_id = :vid"), {"vid": vendor_id})
-        db.session.execute(text("DELETE FROM vendor_verification_tokens WHERE vendor_id = :vid"), {"vid": vendor_id})
-        db.session.execute(text("DELETE FROM vendor_password_reset_tokens WHERE vendor_id = :vid"), {"vid": vendor_id})
-        db.session.execute(text("DELETE FROM products WHERE vendor_id = :vid"), {"vid": vendor_id})
-        db.session.execute(text("DELETE FROM vendors WHERE id = :vid"), {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM product_inquiries WHERE vendor_id = :vid"),          {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_strikes WHERE vendor_id = :vid"),              {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_payments WHERE vendor_id = :vid"),             {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_verification_tokens WHERE vendor_id = :vid"),  {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendor_password_reset_tokens WHERE vendor_id = :vid"),{"vid": vendor_id})
+        db.session.execute(text("DELETE FROM products WHERE vendor_id = :vid"),                    {"vid": vendor_id})
+        db.session.execute(text("DELETE FROM vendors WHERE id = :vid"),                            {"vid": vendor_id})
 
         try:
             import firebase_admin.firestore
-            db_fs = firebase_admin.firestore.client()
+            db_fs     = firebase_admin.firestore.client()
             vendor_uid = f"vendor_{vendor_id}"
             convs = db_fs.collection("conversations").where("vendor_uid", "==", vendor_uid).stream()
             for conv in convs:
@@ -1140,14 +1202,10 @@ def delete_vendor_account():
             "success": True,
             "message": "Your vendor account has been permanently deleted."
         }), 200)
-        response.delete_cookie("access_token_cookie", path=cookie_path)
+        response.delete_cookie("access_token_cookie",  path=cookie_path)
         response.delete_cookie("refresh_token_cookie", path=cookie_path)
         return response
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            "success": False,
-            "message": "Account deletion failed.",
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "message": "Account deletion failed.", "error": str(e)}), 500
