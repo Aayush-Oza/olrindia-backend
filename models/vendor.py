@@ -84,6 +84,9 @@ class Vendor(db.Model):
 
     # ── Social Login ──────────────────────────────────────────────────────────
     google_id = db.Column(db.String(200), unique=True, nullable=True)
+    
+    # ── Store slug ────────────────────────────────────────────────────────────
+    store_slug = db.Column(db.String(200), unique=True, nullable=True)
 
     # ── FCM ───────────────────────────────────────────────────────────────────
     fcm_token = db.Column(db.String(500), nullable=True)
@@ -199,6 +202,18 @@ class Vendor(db.Model):
             )
         return True, None
 
+    def generate_store_slug(self):
+        import re
+        base = f"{self.name or ''}-{self.city or ''}".lower()
+        slug = re.sub(r'[^a-z0-9]+', '-', base).strip('-')
+        # ensure uniqueness
+        existing = Vendor.query.filter(
+            Vendor.store_slug == slug,
+            Vendor.id != self.id
+        ).first()
+        if existing:
+            slug = f"{slug}-{self.id}"
+        return slug
 
 class VendorVerificationToken(db.Model):
     __tablename__ = "vendor_verification_tokens"

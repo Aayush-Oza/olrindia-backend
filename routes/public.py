@@ -313,6 +313,65 @@ def get_public_product(slug):
     cache.setex(cache_key, 120, json.dumps(response_data))
     return jsonify(response_data), 200
 
+@public_bp.route("/vendor/<string:store_slug>", methods=["GET"])
+@limiter.limit("60 per minute")
+def get_vendor_store(store_slug):
+    cache_key = f"vendor_store:{store_slug}"
+    cached = cache.get(cache_key)
+    if cached:
+        return jsonify(json.loads(cached)), 200
+
+    v = Vendor.query.filter_by(store_slug=store_slug, is_active=True, is_verified=True).first()
+    if not v:
+        return jsonify({"success": False, "message": "Vendor store not found."}), 404
+
+    plan_ok = (
+        v.subscription_plan == "free" or
+        (v.subscription_expires_at and v.subscription_expires_at > datetime.utcnow())
+    )
+    if not plan_ok:
+        return jsonify({"success": False, "message": "This store is not available."}), 404
+
+    listing_type = request.args.get("listing_type", "all").strip().lower()
+    if listing_type not in ("rent", "sell", "all"):
+        listing_type = "all"
+
+    page     = request.args.get("page", 1, type=int)
+    per_page = min(request.args.get("per_page", 20, type=int), 50)
+
+    query = Product.query.filter_by(vendor_id=v.id, is_active=True)
+    if listing_type in ("rent", "sell"):
+        query = query.filter_by(listing_type=listing_type)
+
+    query = query.order_by(Product.click_count.desc())
+
+    total    = query.count()
+    products = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    vendor_data = {
+        "id":            v.id,
+        "name":          v.name or '',
+        "profile_photo": v.profile_photo,
+        "badge":         v.badge(),
+        "city":          v.city,
+        "state":         v.state,
+        "store_slug":    v.store_slug,
+        "member_since":  v.created_at.strftime("%B %Y"),
+        "total_listings": total,
+    }
+
+    response_data = {
+        "success":  True,
+        "vendor":   vendor_data,
+        "products": [p.to_dict(include_vendor_badge=True) for p in products],
+        "page":     page,
+        "per_page": per_page,
+        "total":    total,
+        "has_more": (page * per_page) < total,
+        "listing_type": listing_type,
+    }
+    cache.setex(cache_key, 60, json.dumps(response_data))
+    return jsonify(response_data), 200
 
 CRAWLER_UA_SUBSTRINGS = [
     "whatsapp", "facebookexternalhit", "twitterbot", "linkedinbot",
