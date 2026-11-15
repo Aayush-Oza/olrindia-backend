@@ -307,6 +307,7 @@ def get_public_product(slug):
         "badge":         v.badge(),
         "city":          v.city,
         "state":         v.state,
+        "store_slug":    v.store_slug,
     }
     # to_dict() already includes listing_type, selling_price, condition
     response_data = {"success": True, "product": p.to_dict(), "vendor": vendor_data}
