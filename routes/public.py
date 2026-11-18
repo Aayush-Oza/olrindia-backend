@@ -251,7 +251,7 @@ def get_public_products():
         (Vendor.subscription_plan == "starter", 2),
         else_=3
     )
-    query = query.order_by(plan_order, Product.click_count.desc())
+    query = query.order_by(plan_order, Product.click_count.desc(), Product.id.desc())
 
     total = query.count()
     rows  = query.offset((page - 1) * per_page).limit(per_page).all()
