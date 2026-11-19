@@ -8,54 +8,29 @@ public_bp = Blueprint("public", __name__)
 
 BASE_URL = "https://olrindia.com"
 
-CATEGORY_IMAGES = {
-    'Construction Equipment':             'SunriseMachineryattheConstruction Site.webp',
-    'Furniture & Home Appliances':        'ModernShowroomLivingSpace.webp',
-    'Photography & Content Creator Gear': 'PhotographyContentCreatorGear.webp',
-    'Events & Weddings':                  'EventsWeddings.webp',
-    'Fashion & Designer Wear':            'FashionDesignerWear.webp',
-    'Agricultural Equipment':             'AgriculturalEquipment.webp',
-    'Passenger Vehicles':                 'PassengerVehicles.webp',
-    'Bikes & Scooters':                   'BikesScooters.webp',
-    'Medical Equipment':                  'MedicalEquipment.webp',
-    'Baby & Kids Gear':                   'BabyKidsGear.webp',
-    'Adventure & Trekking Gear':          'AdventureTrekkingGear.webp',
-    'Sports & Fitness Equipment':         'SportsFitnessEquipment.webp',
-    'Electrical & Power Tools':           'ProfessionalConstructionToolsDisplay.webp',
-    'Commercial Vehicles':                'CommercialVehicles.webp',
-    'Tools & Tackles':                    'ToolsTackles.webp',
-    'Properties':                         'Properties.webp',
-    'Industrial Equipment':               'IndustrialEquipment.webp',
-    'Warehouse & Storage':                'WarehouseStorage.webp',
-    'Cargo & Shipping':                   'CargoShipping.webp',
-    'Machineries':                        'Machineries.webp',
-    'Musical Instruments':                'Musical Instruments.webp',
-    'Office and Business Essentials':     'ModernOfficeEssentialsShowroom.webp',
-}
-
-CATEGORY_EMOJIS = {
-    'Construction Equipment':             '🏗️',
-    'Furniture & Home Appliances':        '🛋️',
-    'Photography & Content Creator Gear': '📷',
-    'Events & Weddings':                  '🎉',
-    'Fashion & Designer Wear':            '👗',
-    'Agricultural Equipment':             '🌾',
-    'Passenger Vehicles':                 '🚗',
-    'Bikes & Scooters':                   '🏍️',
-    'Medical Equipment':                  '🩺',
-    'Baby & Kids Gear':                   '🍼',
-    'Adventure & Trekking Gear':          '⛺',
-    'Sports & Fitness Equipment':         '🏋️',
-    'Electrical & Power Tools':           '⚡',
-    'Commercial Vehicles':                '🚛',
-    'Tools & Tackles':                    '🛠️',
-    'Properties':                         '🏢',
-    'Industrial Equipment':               '⚙️',
-    'Warehouse & Storage':                '🏭',
-    'Cargo & Shipping':                   '📦',
-    'Machineries':                        '🔧',
-    'Musical Instruments':                '🎸',
-    'Office and Business Essentials':     '💼',
+CATEGORY_ICONS = {
+    'Construction Equipment':             'noto:building-construction',
+    'Furniture & Home Appliances':        'noto:couch-and-lamp',
+    'Photography & Content Creator Gear': 'noto:camera',
+    'Events & Weddings':                  'noto:party-popper',
+    'Fashion & Designer Wear':            'noto:dress',
+    'Agricultural Equipment':             'noto:tractor',
+    'Passenger Vehicles':                 'noto:automobile',
+    'Bikes & Scooters':                   'noto:motor-scooter',
+    'Medical Equipment':                  'noto:stethoscope',
+    'Baby & Kids Gear':                   'noto:baby',
+    'Adventure & Trekking Gear':          'noto:camping',
+    'Sports & Fitness Equipment':         'noto:person-lifting-weights',
+    'Electrical & Power Tools':           'noto:electric-plug',
+    'Commercial Vehicles':                'noto:delivery-truck',
+    'Tools & Tackles':                    'noto:hammer-and-wrench',
+    'Properties':                         'noto:house',
+    'Industrial Equipment':               'noto:gear',
+    'Warehouse & Storage':                'noto:warehouse',
+    'Cargo & Shipping':                   'noto:package',
+    'Machineries':                        'noto:wrench',
+    'Musical Instruments':                'noto:guitar',
+    'Office and Business Essentials':     'noto:briefcase',
 }
 
 
@@ -104,7 +79,6 @@ def get_categories():
         return jsonify(json.loads(cached)), 200
 
     from sqlalchemy import func
-    from urllib.parse import quote
 
     base_query = (
         db.session.query(Product.category, func.count(Product.id))
@@ -128,12 +102,9 @@ def get_categories():
         cnt = count_map.get(cat, 0)
         if cnt == 0:
             continue
-        filename  = CATEGORY_IMAGES.get(cat)
-        image_url = f"{BASE_URL}/assets/categories/{quote(filename)}" if filename else None
         categories.append({
             'name':          cat,
-            'emoji':         CATEGORY_EMOJIS.get(cat, '📦'),
-            'image_url':     image_url,
+            'icon':          CATEGORY_ICONS.get(cat, 'noto:package'),
             'product_count': cnt,
         })
 
