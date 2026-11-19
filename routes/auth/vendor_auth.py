@@ -563,13 +563,13 @@ def add_product():
         listing_type=listing_type,
         name=name,
         description=request.form.get("description", "").strip() or None,
-        # rent fields — None for sell listings
+        # rent fields - None for sell listings
         rent_per_hour=float(rent_per_hour_raw)   if rent_per_hour_raw  and listing_type == "rent" else None,
         rent_per_km=float(rent_per_km_raw)        if rent_per_km_raw    and listing_type == "rent" else None,
         rent_per_day=float(rent_per_day_raw)      if rent_per_day_raw   and listing_type == "rent" else None,
         rent_per_month=float(rent_per_month_raw)  if rent_per_month_raw and listing_type == "rent" else None,
         security_deposit=float(request.form.get("security_deposit")) if request.form.get("security_deposit") and listing_type == "rent" else None,
-        # sell fields — None for rent listings
+        # sell fields - None for rent listings
         selling_price=float(selling_price_raw) if listing_type == "sell" else None,
         condition=condition if listing_type == "sell" else None,
         # location

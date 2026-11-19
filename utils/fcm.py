@@ -15,7 +15,7 @@ def _get_access_token():
     return creds.token
 
 def send_chat_notification(fcm_token: str, sender_name: str, text: str, conv_id: str, sender_photo: str = None):
-    # Dedup — same conv+text within 3 seconds = skip (prevents web+app double notify)
+    # Dedup - same conv+text within 3 seconds = skip (prevents web+app double notify)
     cache_key = f"{conv_id}:{text[:30]}"
     now = time.time()
     if _notify_cache.get(cache_key, 0) > now - 3:

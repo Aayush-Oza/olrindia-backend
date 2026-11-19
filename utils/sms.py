@@ -1,5 +1,5 @@
 # utils/sms.py
-# MSG91 SMS utility — sends verification magic link via SMS
+# MSG91 SMS utility - sends verification magic link via SMS
 # Best-effort: silently skips if MSG91 keys not configured (DLT pending)
 
 import os
@@ -14,7 +14,7 @@ def send_verification_sms(mobile: str, name: str, token: str, role: str, fronten
     template_id = os.getenv("MSG91_TEMPLATE_ID", "")
 
     if not api_key or not template_id or not mobile:
-        return False  # DLT not ready yet — skip silently
+        return False  # DLT not ready yet - skip silently
 
     verify_link = f"{frontend_url}/{role}/verify-email.html?token={token}"
 

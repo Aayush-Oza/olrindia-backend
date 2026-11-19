@@ -25,7 +25,7 @@ def slugify(text):
 @limiter.limit("60 per minute")
 def product_seo(cat, city, slug):
 
-    # Real user — Nginx already serves product.html to them
+    # Real user - Nginx already serves product.html to them
     # This route only reached when Nginx passes crawler traffic here
     if not is_crawler(request.headers.get("User-Agent", "")):
         return redirect(f"/product/{cat}/{city}/{slug}", code=302)
