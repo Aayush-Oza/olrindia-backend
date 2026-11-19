@@ -47,6 +47,7 @@ def clear_public_cache():
         cache.delete("categories")
         cache.delete("categories:rent")
         cache.delete("categories:sell")
+        cache.delete("categories:all")
     except Exception:
         pass
 
@@ -65,13 +66,13 @@ def vendor_plan_active_filter():
 
 # ── /products/categories ──────────────────────────────────────────────────────
 # Returns categories with product counts, filtered by listing_type.
-# listing_type param: "rent" (default) | "sell" | "all"
+# listing_type param: "rent" | "sell" | "all" (default: "all")
 @public_bp.route("/categories", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_categories():
-    listing_type = request.args.get("listing_type", "rent").strip().lower()
+    listing_type = request.args.get("listing_type", "all").strip().lower()
     if listing_type not in ("rent", "sell", "all"):
-        listing_type = "rent"
+        listing_type = "all"
 
     cache_key = f"categories:{listing_type}"
     cached = cache.get(cache_key)
@@ -91,6 +92,7 @@ def get_categories():
         )
     )
 
+    # Only filter by listing_type if not "all"
     if listing_type in ("rent", "sell"):
         base_query = base_query.filter(Product.listing_type == listing_type)
 
@@ -114,9 +116,10 @@ def get_categories():
 
 
 # ── /products/public ──────────────────────────────────────────────────────────
-# listing_type param: "rent" (default) | "sell"
-# Price filters only apply to rent listings; sell listings use price_min/price_max
-# against selling_price instead.
+# listing_type param: "rent" | "sell" | "all" (default: "all")
+# "all"  → returns both rent and sell products (no price/condition filters applied)
+# "rent" → rent products only, supports price_type / price_min / price_max filters
+# "sell" → sell products only, supports condition / price_min / price_max filters
 @public_bp.route("/public", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_public_products():
@@ -127,7 +130,7 @@ def get_public_products():
     category     = request.args.get("category",     "").strip()
     city         = request.args.get("city",         "").strip()
     search       = request.args.get("search",       "").strip().lower()
-    listing_type = request.args.get("listing_type", "rent").strip().lower()
+    listing_type = request.args.get("listing_type", "all").strip().lower()
 
     # rent-specific filters
     price_type = request.args.get("price_type", "").strip()
@@ -137,8 +140,8 @@ def get_public_products():
     # sell-specific filters
     condition  = request.args.get("condition",  "").strip()
 
-    if listing_type not in ("rent", "sell"):
-        listing_type = "rent"
+    if listing_type not in ("rent", "sell", "all"):
+        listing_type = "all"
 
     cache_key = (
         f"public:{listing_type}:{page}:{per_page}:{category}:{city}:"
@@ -148,18 +151,25 @@ def get_public_products():
     if cached:
         return jsonify(json.loads(cached)), 200
 
+    # ── Base query ────────────────────────────────────────────────────────────
+    base_filters = [
+        Product.is_active  == True,
+        Vendor.is_active   == True,
+        Vendor.is_verified == True,
+        vendor_plan_active_filter(),
+    ]
+
+    # Only filter by listing_type when not "all"
+    if listing_type in ("rent", "sell"):
+        base_filters.append(Product.listing_type == listing_type)
+
     query = (
         db.session.query(Product, Vendor)
         .join(Vendor, Product.vendor_id == Vendor.id)
-        .filter(
-            Product.is_active    == True,
-            Product.listing_type == listing_type,
-            Vendor.is_active     == True,
-            Vendor.is_verified   == True,
-            vendor_plan_active_filter(),
-        )
+        .filter(*base_filters)
     )
 
+    # ── Common filters (category, city, search) ───────────────────────────────
     if category:
         query = query.filter(Product.category == category)
 
@@ -179,7 +189,7 @@ def get_public_products():
             Product.category.ilike(f"%{search}%"),
         ))
 
-    # ── rent price filters ────────────────────────────────────────────────────
+    # ── Rent-specific price filters ───────────────────────────────────────────
     if listing_type == "rent":
         price_col_map = {
             "hour":  Product.rent_per_hour,
@@ -205,9 +215,8 @@ def get_public_products():
                 conds.append(col_filter)
             query = query.filter(db.or_(*conds))
 
-    # ── sell price + condition filters ────────────────────────────────────────
+    # ── Sell-specific price + condition filters ───────────────────────────────
     elif listing_type == "sell":
-        query = query.filter(Product.selling_price.isnot(None))
         if price_min > 0:
             query = query.filter(Product.selling_price >= price_min)
         if price_max is not None:
@@ -215,7 +224,10 @@ def get_public_products():
         if condition:
             query = query.filter(Product.condition == condition)
 
-    # ── ordering: premium > growth > starter > free, then by clicks ──────────
+    # ── "all" tab: no price/condition filters, just show everything ───────────
+    # (price_min / price_max / condition are ignored on the all tab)
+
+    # ── Ordering: premium > growth > starter > free, then by clicks ──────────
     plan_order = case(
         (Vendor.subscription_plan == "premium", 0),
         (Vendor.subscription_plan == "growth",  1),
@@ -280,11 +292,12 @@ def get_public_product(slug):
         "state":         v.state,
         "store_slug":    v.store_slug,
     }
-    # to_dict() already includes listing_type, selling_price, condition
     response_data = {"success": True, "product": p.to_dict(), "vendor": vendor_data}
     cache.setex(cache_key, 120, json.dumps(response_data))
     return jsonify(response_data), 200
 
+
+# ── /vendor/<store_slug> ──────────────────────────────────────────────────────
 @public_bp.route("/vendor/<string:store_slug>", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_vendor_store(store_slug):
@@ -345,6 +358,7 @@ def get_vendor_store(store_slug):
     }
     cache.setex(cache_key, 60, json.dumps(response_data))
     return jsonify(response_data), 200
+
 
 CRAWLER_UA_SUBSTRINGS = [
     "whatsapp", "facebookexternalhit", "twitterbot", "linkedinbot",
