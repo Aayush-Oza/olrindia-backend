@@ -607,9 +607,11 @@ def update_product(product_id):
         try: return float(val)
         except: return None
 
-    # ── listing_type change is NOT allowed after creation ─────────────────────
-    # (vendor would need to delete and re-create if they want to switch type)
-    listing_type = p.listing_type  # keep existing
+    if 'listing_type' in data and data['listing_type'] in ('rent', 'sell'):
+        listing_type = data['listing_type']
+        p.listing_type = listing_type
+    else:
+        listing_type = p.listing_type
 
     if 'name' in data and data['name']:
         p.name = data['name'].strip()
