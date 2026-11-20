@@ -330,7 +330,8 @@ class Product(db.Model):
     state            = db.Column(db.String(100), nullable=True)
     city             = db.Column(db.String(100), nullable=True)
     area             = db.Column(db.String(200), nullable=True)
-
+    latitude  = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
     # ── Images (up to 5, S3 URLs) ─────────────────────────────────────────────
     image1           = db.Column(db.String(500), nullable=True)
     image2           = db.Column(db.String(500), nullable=True)
@@ -414,6 +415,8 @@ class Product(db.Model):
             "state":   self.state,
             "city":    self.city,
             "area":    self.area,
+            "latitude":  self.latitude,
+            "longitude": self.longitude,
             # ── meta ──
             "images":             self.image_urls(),
             "share_slug":         self.share_slug,

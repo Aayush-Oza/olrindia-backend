@@ -506,12 +506,10 @@ def add_product():
     name = request.form.get("name", "").strip()
     if not name: return jsonify({"success": False, "message": "name is required."}), 400
 
-    # ── listing type ──────────────────────────────────────────────────────────
     listing_type = request.form.get("listing_type", "rent").strip().lower()
     if listing_type not in ("rent", "sell"):
         return jsonify({"success": False, "message": "listing_type must be 'rent' or 'sell'."}), 400
 
-    # ── rent fields (only required for rent listings) ─────────────────────────
     rent_per_hour_raw  = request.form.get("rent_per_hour",  "").strip()
     rent_per_km_raw    = request.form.get("rent_per_km",    "").strip()
     rent_per_day_raw   = request.form.get("rent_per_day",   "").strip()
@@ -521,7 +519,6 @@ def add_product():
         if not rent_per_hour_raw and not rent_per_km_raw and not rent_per_day_raw and not rent_per_month_raw:
             return jsonify({"success": False, "message": "Please provide at least one rent rate (per hour, km, day, or month)."}), 400
 
-    # ── sell fields (only required for sell listings) ─────────────────────────
     selling_price_raw = request.form.get("selling_price", "").strip()
     condition         = request.form.get("condition", "").strip() or None
 
@@ -537,13 +534,36 @@ def add_product():
         if condition and condition not in ITEM_CONDITIONS:
             return jsonify({"success": False, "message": f"condition must be one of: {', '.join(ITEM_CONDITIONS)}"}), 400
 
-    # ── category ──────────────────────────────────────────────────────────────
     category = request.form.get("category", "").strip()
     if category not in PRODUCT_CATEGORIES:
         return jsonify({"success": False, "message": "Invalid category."}), 400
     subcategory = request.form.get("subcategory", "").strip() or None
 
-    # ── images ────────────────────────────────────────────────────────────────
+    # ── Location ──────────────────────────────────────────────────────────────
+    pincode = request.form.get("pincode", "").strip() or None
+    area    = request.form.get("area",    "").strip() or None
+    city    = request.form.get("city",    "").strip() or None
+    state   = request.form.get("state",   "").strip() or None
+
+    lat_raw = request.form.get("latitude",  "").strip()
+    lng_raw = request.form.get("longitude", "").strip()
+    try:
+        latitude  = float(lat_raw)  if lat_raw  else None
+        longitude = float(lng_raw)  if lng_raw  else None
+    except ValueError:
+        latitude = longitude = None
+
+    # Must have at least pincode OR coordinates
+    if not pincode and latitude is None:
+        return jsonify({"success": False, "message": "Please enter your pincode or detect your location."}), 400
+
+    # Fall back to vendor location fields if not provided
+    if not pincode: pincode = v.pincode
+    if not area:    area    = v.area
+    if not city:    city    = v.city
+    if not state:   state   = v.state
+
+    # ── Images ────────────────────────────────────────────────────────────────
     urls = []
     for i in range(1, 6):
         f = request.files.get(f"image{i}")
@@ -563,20 +583,19 @@ def add_product():
         listing_type=listing_type,
         name=name,
         description=request.form.get("description", "").strip() or None,
-        # rent fields - None for sell listings
         rent_per_hour=float(rent_per_hour_raw)   if rent_per_hour_raw  and listing_type == "rent" else None,
         rent_per_km=float(rent_per_km_raw)        if rent_per_km_raw    and listing_type == "rent" else None,
         rent_per_day=float(rent_per_day_raw)      if rent_per_day_raw   and listing_type == "rent" else None,
         rent_per_month=float(rent_per_month_raw)  if rent_per_month_raw and listing_type == "rent" else None,
         security_deposit=float(request.form.get("security_deposit")) if request.form.get("security_deposit") and listing_type == "rent" else None,
-        # sell fields - None for rent listings
         selling_price=float(selling_price_raw) if listing_type == "sell" else None,
         condition=condition if listing_type == "sell" else None,
-        # location
-        pincode=request.form.get("pincode") or v.pincode,
-        state=request.form.get("state")     or v.state,
-        city=request.form.get("city")       or v.city,
-        area=request.form.get("area")       or v.area,
+        pincode=pincode,
+        area=area,
+        city=city,
+        state=state,
+        latitude=latitude,
+        longitude=longitude,
         category=category,
         subcategory=subcategory,
         image1=urls[0], image2=urls[1], image3=urls[2],
@@ -621,24 +640,39 @@ def update_product(product_id):
         p.category = data['category']
     if 'subcategory' in data:
         p.subcategory = data['subcategory'] or None
-    if 'pincode' in data: p.pincode = data['pincode'] or None
-    if 'area' in data:    p.area    = data['area']    or None
-    if 'city' in data:    p.city    = data['city']    or None
-    if 'state' in data:   p.state   = data['state']   or None
+
+    # ── Location ──────────────────────────────────────────────────────────────
+    pincode = data.get('pincode', '').strip() if data.get('pincode') else ''
+    lat_raw = str(data.get('latitude',  '') or '').strip()
+    lng_raw = str(data.get('longitude', '') or '').strip()
+
+    try:
+        latitude  = float(lat_raw) if lat_raw else None
+        longitude = float(lng_raw) if lng_raw else None
+    except ValueError:
+        latitude = longitude = None
+
+    # Must have at least pincode OR coordinates
+    if not pincode and latitude is None:
+        return jsonify({"success": False, "message": "Please enter your pincode or detect your location."}), 400
+
+    if 'pincode' in data: p.pincode   = pincode or None
+    if 'area'    in data: p.area      = data['area']    or None
+    if 'city'    in data: p.city      = data['city']    or None
+    if 'state'   in data: p.state     = data['state']   or None
+    if 'latitude'  in data: p.latitude  = latitude
+    if 'longitude' in data: p.longitude = longitude
 
     if listing_type == "rent":
-        # update rent-specific fields
-        if 'rent_per_hour' in data:   p.rent_per_hour    = to_float_or_none(data['rent_per_hour'])
-        if 'rent_per_km' in data:     p.rent_per_km      = to_float_or_none(data['rent_per_km'])
-        if 'rent_per_day' in data:    p.rent_per_day     = to_float_or_none(data['rent_per_day'])
-        if 'rent_per_month' in data:  p.rent_per_month   = to_float_or_none(data['rent_per_month'])
+        if 'rent_per_hour'   in data: p.rent_per_hour    = to_float_or_none(data['rent_per_hour'])
+        if 'rent_per_km'     in data: p.rent_per_km      = to_float_or_none(data['rent_per_km'])
+        if 'rent_per_day'    in data: p.rent_per_day     = to_float_or_none(data['rent_per_day'])
+        if 'rent_per_month'  in data: p.rent_per_month   = to_float_or_none(data['rent_per_month'])
         if 'security_deposit' in data: p.security_deposit = to_float_or_none(data['security_deposit'])
-        # validate at least one rent rate remains set
         if not any([p.rent_per_hour, p.rent_per_km, p.rent_per_day, p.rent_per_month]):
             return jsonify({"success": False, "message": "At least one rent rate is required."}), 400
 
     elif listing_type == "sell":
-        # update sell-specific fields
         if 'selling_price' in data:
             sp = to_float_or_none(data['selling_price'])
             if sp is None or sp <= 0:
