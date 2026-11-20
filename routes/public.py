@@ -1,4 +1,5 @@
 # backend/routes/public.py
+import math
 from datetime import datetime
 from flask import Blueprint, jsonify, json, request, redirect
 from extensions import db, limiter, cache
@@ -33,8 +34,30 @@ CATEGORY_ICONS = {
     'Office and Business Essentials':     'noto:briefcase',
 }
 
+# ── Plan rank map (higher = better plan) ─────────────────────────────────────
+PLAN_RANK = {
+    "premium":        3,
+    "premium_yearly": 3,
+    "growth":         2,
+    "growth_yearly":  2,
+    "starter":        1,
+    "starter_yearly": 1,
+    "free":           0,
+}
 
-# ── helper: clear all public cache keys ──────────────────────────────────────
+
+# ── Haversine distance (km) ───────────────────────────────────────────────────
+def haversine_km(lat1, lng1, lat2, lng2):
+    """Returns distance in km between two lat/lng points."""
+    R = 6371.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi       = math.radians(lat2 - lat1)
+    dlambda    = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+# ── Clear all public cache keys ───────────────────────────────────────────────
 def clear_public_cache():
     """Call this whenever a product or vendor changes."""
     try:
@@ -52,12 +75,8 @@ def clear_public_cache():
         pass
 
 
-# ── helper: plan is active filter ────────────────────────────────────────────
+# ── Plan active filter ────────────────────────────────────────────────────────
 def vendor_plan_active_filter():
-    """
-    Ensures vendor's plan is either free (no expiry needed) or a paid plan
-    that hasn't expired yet. Used in all public listing queries.
-    """
     return db.or_(
         Vendor.subscription_plan == "free",
         Vendor.subscription_expires_at > datetime.utcnow()
@@ -65,8 +84,6 @@ def vendor_plan_active_filter():
 
 
 # ── /products/categories ──────────────────────────────────────────────────────
-# Returns categories with product counts, filtered by listing_type.
-# listing_type param: "rent" | "sell" | "all" (default: "all")
 @public_bp.route("/categories", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_categories():
@@ -85,14 +102,16 @@ def get_categories():
         db.session.query(Product.category, func.count(Product.id))
         .join(Vendor, Product.vendor_id == Vendor.id)
         .filter(
-            Product.is_active  == True,
-            Vendor.is_active   == True,
-            Vendor.is_verified == True,
+            Product.is_active      == True,
+            Vendor.is_active       == True,
+            Vendor.is_verified     == True,
             vendor_plan_active_filter(),
+            # Only count products that have proper coordinates
+            Product.latitude.isnot(None),
+            Product.longitude.isnot(None),
         )
     )
 
-    # Only filter by listing_type if not "all"
     if listing_type in ("rent", "sell"):
         base_query = base_query.filter(Product.listing_type == listing_type)
 
@@ -116,15 +135,15 @@ def get_categories():
 
 
 # ── /products/public ──────────────────────────────────────────────────────────
-# listing_type param: "rent" | "sell" | "all" (default: "all")
-# "all"  → returns both rent and sell products (no price/condition filters applied)
-# "rent" → rent products only, supports price_type / price_min / price_max filters
-# "sell" → sell products only, supports condition / price_min / price_max filters
+# Sort logic (Option B):
+#   WITH user lat/lng  → plan tier first (premium→growth→starter→free),
+#                         within each tier sorted by nearest distance
+#   WITHOUT user lat/lng → plan tier first, then click_count desc (original)
+#
+# Only products WITH latitude+longitude are shown publicly.
 @public_bp.route("/public", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_public_products():
-    from sqlalchemy import case
-
     page         = request.args.get("page",         1,     type=int)
     per_page     = min(request.args.get("per_page", 20,    type=int), 50)
     category     = request.args.get("category",     "").strip()
@@ -132,34 +151,51 @@ def get_public_products():
     search       = request.args.get("search",       "").strip().lower()
     listing_type = request.args.get("listing_type", "all").strip().lower()
 
+    # User location (from browser GPS)
+    user_lat_raw = request.args.get("user_lat", "").strip()
+    user_lng_raw = request.args.get("user_lng", "").strip()
+    try:
+        user_lat = float(user_lat_raw) if user_lat_raw else None
+        user_lng = float(user_lng_raw) if user_lng_raw else None
+    except ValueError:
+        user_lat = user_lng = None
+
+    has_user_location = user_lat is not None and user_lng is not None
+
     # rent-specific filters
     price_type = request.args.get("price_type", "").strip()
     price_min  = request.args.get("price_min",  0,    type=float)
     price_max  = request.args.get("price_max",  None, type=float)
 
     # sell-specific filters
-    condition  = request.args.get("condition",  "").strip()
+    condition = request.args.get("condition", "").strip()
 
     if listing_type not in ("rent", "sell", "all"):
         listing_type = "all"
 
-    cache_key = (
-        f"public:{listing_type}:{page}:{per_page}:{category}:{city}:"
-        f"{price_type}:{price_min}:{price_max}:{search}:{condition}"
-    )
-    cached = cache.get(cache_key)
-    if cached:
-        return jsonify(json.loads(cached)), 200
+    # Distance-based sorting cannot be cached meaningfully per user,
+    # so we only cache when no user location is provided.
+    cache_key = None
+    if not has_user_location:
+        cache_key = (
+            f"public:{listing_type}:{page}:{per_page}:{category}:{city}:"
+            f"{price_type}:{price_min}:{price_max}:{search}:{condition}"
+        )
+        cached = cache.get(cache_key)
+        if cached:
+            return jsonify(json.loads(cached)), 200
 
-    # ── Base query ────────────────────────────────────────────────────────────
+    # ── Base filters ──────────────────────────────────────────────────────────
     base_filters = [
-        Product.is_active  == True,
-        Vendor.is_active   == True,
-        Vendor.is_verified == True,
+        Product.is_active      == True,
+        Vendor.is_active       == True,
+        Vendor.is_verified     == True,
         vendor_plan_active_filter(),
+        # Only show products with proper GPS coordinates
+        Product.latitude.isnot(None),
+        Product.longitude.isnot(None),
     ]
 
-    # Only filter by listing_type when not "all"
     if listing_type in ("rent", "sell"):
         base_filters.append(Product.listing_type == listing_type)
 
@@ -169,7 +205,7 @@ def get_public_products():
         .filter(*base_filters)
     )
 
-    # ── Common filters (category, city, search) ───────────────────────────────
+    # ── Common filters ────────────────────────────────────────────────────────
     if category:
         query = query.filter(Product.category == category)
 
@@ -215,7 +251,7 @@ def get_public_products():
                 conds.append(col_filter)
             query = query.filter(db.or_(*conds))
 
-    # ── Sell-specific price + condition filters ───────────────────────────────
+    # ── Sell-specific filters ─────────────────────────────────────────────────
     elif listing_type == "sell":
         if price_min > 0:
             query = query.filter(Product.selling_price >= price_min)
@@ -224,38 +260,70 @@ def get_public_products():
         if condition:
             query = query.filter(Product.condition == condition)
 
-    # ── "all" tab: no price/condition filters, just show everything ───────────
-    # (price_min / price_max / condition are ignored on the all tab)
+    # ── Fetch all matching rows (needed for distance sort in Python) ──────────
+    if has_user_location:
+        # Fetch all matching rows, sort in Python by (plan_rank DESC, distance ASC)
+        all_rows = query.all()
 
-    # ── Ordering: premium > growth > starter > free, then by clicks ──────────
-    plan_order = case(
-        (Vendor.subscription_plan == "premium", 0),
-        (Vendor.subscription_plan == "growth",  1),
-        (Vendor.subscription_plan == "starter", 2),
-        else_=3
-    )
-    query = query.order_by(plan_order, Product.click_count.desc(), Product.id.desc())
+        def sort_key(row):
+            p, v = row
+            plan_rank = PLAN_RANK.get(v.effective_plan_name(), 0)
+            distance  = haversine_km(user_lat, user_lng, float(p.latitude), float(p.longitude))
+            # Negate plan_rank so higher plan = smaller sort value (sorts first)
+            return (-plan_rank, distance)
 
-    total = query.count()
-    rows  = query.offset((page - 1) * per_page).limit(per_page).all()
+        all_rows.sort(key=sort_key)
 
-    result = []
-    for p, v in rows:
-        d = p.to_dict(include_vendor_badge=True)
-        d["vendor_plan"] = v.effective_plan_name()
-        d["vendor_city"] = v.city
-        result.append(d)
+        total    = len(all_rows)
+        offset   = (page - 1) * per_page
+        page_rows = all_rows[offset: offset + per_page]
+
+        result = []
+        for p, v in page_rows:
+            d = p.to_dict(include_vendor_badge=True)
+            d["vendor_plan"] = v.effective_plan_name()
+            d["vendor_city"] = v.city
+            d["distance_km"] = round(
+                haversine_km(user_lat, user_lng, float(p.latitude), float(p.longitude)), 1
+            )
+            result.append(d)
+
+    else:
+        # No user location — original DB-level sort: plan tier then clicks
+        from sqlalchemy import case
+        plan_order = case(
+            (Vendor.subscription_plan.in_(["premium", "premium_yearly"]), 0),
+            (Vendor.subscription_plan.in_(["growth",  "growth_yearly"]),  1),
+            (Vendor.subscription_plan.in_(["starter", "starter_yearly"]), 2),
+            else_=3
+        )
+        query = query.order_by(plan_order, Product.click_count.desc(), Product.id.desc())
+
+        total     = query.count()
+        page_rows = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        result = []
+        for p, v in page_rows:
+            d = p.to_dict(include_vendor_badge=True)
+            d["vendor_plan"] = v.effective_plan_name()
+            d["vendor_city"] = v.city
+            result.append(d)
 
     response_data = {
-        "success":      True,
-        "products":     result,
-        "listing_type": listing_type,
-        "page":         page,
-        "per_page":     per_page,
-        "total":        total,
-        "has_more":     (page * per_page) < total,
+        "success":            True,
+        "products":           result,
+        "listing_type":       listing_type,
+        "page":               page,
+        "per_page":           per_page,
+        "total":              total,
+        "has_more":           (page * per_page) < total,
+        "location_used":      has_user_location,
     }
-    cache.setex(cache_key, 60, json.dumps(response_data))
+
+    # Only cache when no user location (distance results are per-user)
+    if cache_key:
+        cache.setex(cache_key, 60, json.dumps(response_data))
+
     return jsonify(response_data), 200
 
 
@@ -271,6 +339,10 @@ def get_public_product(slug):
     p = Product.query.filter_by(share_slug=slug, is_active=True).first()
     if not p:
         return jsonify({"success": False, "message": "Product not found or no longer available."}), 404
+
+    # Product must have coordinates
+    if p.latitude is None or p.longitude is None:
+        return jsonify({"success": False, "message": "This listing is not available."}), 404
 
     v = Vendor.query.get(p.vendor_id)
     if not v or not v.is_active or not v.is_verified:
@@ -324,9 +396,18 @@ def get_vendor_store(store_slug):
     if not plan_ok:
         return jsonify({"success": False, "message": "This store is not available."}), 404
 
-    total_listings = Product.query.filter_by(vendor_id=v.id, is_active=True).count()
+    # Total active listings with coordinates
+    total_listings = Product.query.filter_by(
+        vendor_id=v.id, is_active=True
+    ).filter(
+        Product.latitude.isnot(None),
+        Product.longitude.isnot(None),
+    ).count()
 
-    query = Product.query.filter_by(vendor_id=v.id, is_active=True)
+    query = Product.query.filter_by(vendor_id=v.id, is_active=True).filter(
+        Product.latitude.isnot(None),
+        Product.longitude.isnot(None),
+    )
     if listing_type in ("rent", "sell"):
         query = query.filter_by(listing_type=listing_type)
     query = query.order_by(Product.click_count.desc())
