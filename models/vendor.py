@@ -204,9 +204,8 @@ class Vendor(db.Model):
 
     def generate_store_slug(self):
         import re
-        base = f"{self.name or ''}-{self.city or ''}".lower()
+        base = (self.name or '').lower()
         slug = re.sub(r'[^a-z0-9]+', '-', base).strip('-')
-        # ensure uniqueness
         existing = Vendor.query.filter(
             Vendor.store_slug == slug,
             Vendor.id != self.id
