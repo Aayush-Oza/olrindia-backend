@@ -108,3 +108,85 @@ def product_seo(cat, city, slug):
 </html>"""
 
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+@seo_bp.route("/vendor/<string:store_slug>", methods=["GET"])
+@limiter.limit("60 per minute")
+def vendor_seo(store_slug):
+
+    if not is_crawler(request.headers.get("User-Agent", "")):
+        return redirect(f"/vendor/{store_slug}", code=302)
+
+    v = Vendor.query.filter_by(store_slug=store_slug, is_active=True, is_verified=True).first()
+    if not v:
+        return redirect("/")
+
+    products  = Product.query.filter_by(vendor_id=v.id, is_active=True).all()
+    total     = len(products)
+    clean_url = f"https://olrindia.com/vendor/{store_slug}"
+    image     = v.profile_photo or "https://olrindia.com/assets/og-banner.jpg"
+    city_text = v.city or "India"
+    title     = f"{v.name}'s Store – OLR India"
+    desc      = f"Browse {total} active listing{'s' if total != 1 else ''} from {v.name} in {city_text} on OLR India. No middleman. Direct chat."
+
+    categories = list(set(p.category for p in products if p.category))
+    cat_text   = ", ".join(categories[:5]) if categories else "various products"
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="geo.region" content="IN">
+<meta name="geo.placename" content="{city_text}">
+<meta name="language" content="English">
+<meta http-equiv="content-language" content="en-IN">
+<title>{title}</title>
+<meta name="description" content="{desc}">
+<meta name="keywords" content="{v.name} rentals, {cat_text}, rent in {city_text}, OLR India vendor, {city_text} rentals">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+<link rel="canonical" href="{clean_url}">
+<meta property="og:type" content="profile">
+<meta property="og:site_name" content="OLR India">
+<meta property="og:locale" content="en_IN">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{desc}">
+<meta property="og:image" content="{image}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="{clean_url}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@olrindia">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{desc}">
+<meta name="twitter:image" content="{image}">
+<script type="application/ld+json">
+{{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "@id": "{clean_url}",
+  "name": "{v.name}",
+  "description": "{desc}",
+  "url": "{clean_url}",
+  "image": "{image}",
+  "address": {{
+    "@type": "PostalAddress",
+    "addressLocality": "{v.city or ''}",
+    "addressRegion": "{v.state or ''}",
+    "addressCountry": "IN"
+  }},
+  "memberOf": {{
+    "@id": "https://olrindia.com/#organization"
+  }}
+}}
+</script>
+</head>
+<body>
+<h1>{v.name}'s Store on OLR India</h1>
+<p>{desc}</p>
+<p>Categories: {cat_text}</p>
+<p>Based in {city_text}.</p>
+<a href="{clean_url}">Visit {v.name}'s store</a>
+</body>
+</html>"""
+
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
