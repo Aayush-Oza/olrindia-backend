@@ -557,6 +557,16 @@ def add_product():
     if not pincode and latitude is None:
         return jsonify({"success": False, "message": "Please enter your pincode or detect your location."}), 400
 
+    # Geocode pincode if no coordinates provided
+    if latitude is None and pincode:
+        from utils.geocode import pincode_to_latlong
+        latitude, longitude = pincode_to_latlong(pincode)
+        if latitude is None:
+            return jsonify({"success": False, "message": "Could not resolve location from pincode. Please try detecting your location instead."}), 400
+
+    # Fall back to vendor location fields if not provided
+    if not pincode: pincode = v.pincode
+
     # Fall back to vendor location fields if not provided
     if not pincode: pincode = v.pincode
     if not area:    area    = v.area
@@ -655,6 +665,13 @@ def update_product(product_id):
     # Must have at least pincode OR coordinates
     if not pincode and latitude is None:
         return jsonify({"success": False, "message": "Please enter your pincode or detect your location."}), 400
+
+    # Geocode pincode if no coordinates provided
+    if latitude is None and pincode:
+        from utils.geocode import pincode_to_latlong
+        latitude, longitude = pincode_to_latlong(pincode)
+        if latitude is None:
+            return jsonify({"success": False, "message": "Could not resolve location from pincode. Please try detecting your location instead."}), 400
 
     if 'pincode' in data: p.pincode   = pincode or None
     if 'area'    in data: p.area      = data['area']    or None
