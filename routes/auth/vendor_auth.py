@@ -725,8 +725,6 @@ def update_product_status(product_id):
     data = request.get_json()
     if not p.is_active and p.deactivated_by == "admin":
         return jsonify({"success": False, "message": "This product was deactivated by admin. Edit it to bring it back live."}), 403
-    if not p.is_active and p.deactivated_by == "plan_expired":
-        return jsonify({"success": False, "message": "This product was deactivated because your plan expired. Renew your plan to reactivate all products."}), 403
     if "is_active" not in data:
         return jsonify({"success": False, "message": "is_active is required."}), 400
     new_status = bool(data["is_active"])
