@@ -289,7 +289,7 @@ def get_public_products():
             result.append(d)
 
     else:
-        # No user location — original DB-level sort: plan tier then clicks
+        # No user location - original DB-level sort: plan tier then clicks
         from sqlalchemy import case
         plan_order = case(
             (Vendor.subscription_plan.in_(["premium", "premium_yearly"]), 0),
