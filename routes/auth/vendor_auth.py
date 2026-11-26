@@ -131,6 +131,8 @@ def register():
         db.session.add(vendor)
         db.session.flush()
 
+        vendor.store_slug = vendor.generate_store_slug()
+        
         token_obj = VendorVerificationToken.generate(vendor.id)
         db.session.add(token_obj)
         db.session.commit()

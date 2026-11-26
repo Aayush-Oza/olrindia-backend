@@ -270,6 +270,7 @@ def get_vendors():
         "vendors": [
             {
                 "id": v.id, "name": v.name, "email": v.email, "mobile": v.mobile,
+                "store_slug": v.store_slug, 
                 "city": v.city, "area": v.area, "state": v.state,
                 "plan": v.subscription_plan, "verified": v.is_verified,
                 "active": v.is_active, "strike_count": v.strike_count,
@@ -581,3 +582,61 @@ def cleanup_expired_products():
         count += 1
     db.session.commit()
     return jsonify({"success": True, "deleted": count}), 200
+
+@admin_auth_bp.route("/vendors/slug/<string:slug>", methods=["GET"])
+@limiter.limit("30 per minute")
+@jwt_required()
+def get_vendor_detail_by_slug(slug):
+    vendor = Vendor.query.filter_by(store_slug=slug).first()
+    if not vendor:
+        return jsonify({"success": False, "message": "Vendor not found."}), 404
+
+    live_products = Product.query.filter_by(
+        vendor_id=vendor.id, is_active=True
+    ).order_by(Product.created_at.desc()).all()
+
+    strikes = VendorStrike.query.filter_by(
+        vendor_id=vendor.id
+    ).order_by(VendorStrike.created_at.desc()).all()
+
+    vendor_data = {
+        "id": vendor.id, "name": vendor.name, "email": vendor.email,
+        "mobile": vendor.mobile, "gst_number": vendor.gst_number,
+        "pincode": vendor.pincode, "state": vendor.state,
+        "city": vendor.city, "area": vendor.area,
+        "latitude": vendor.latitude, "longitude": vendor.longitude,
+        "profile_photo": vendor.profile_photo,
+        "is_verified": vendor.is_verified, "is_active": vendor.is_active,
+        "strike_count": vendor.strike_count,
+        "suspended_at": vendor.suspended_at.strftime("%d %b %Y, %I:%M %p") if vendor.suspended_at else None,
+        "suspended_reason": vendor.suspended_reason,
+        "subscription_plan": vendor.subscription_plan,
+        "effective_plan": vendor.effective_plan_name(),
+        "subscription_expires_at": vendor.subscription_expires_at.strftime("%d %b %Y") if vendor.subscription_expires_at else None,
+        "is_subscription_active": vendor.is_subscription_active(),
+        "badge": vendor.badge(),
+        "max_active_posts": vendor.max_active_posts(),
+        "active_product_count": vendor.active_product_count(),
+        "google_linked": vendor.google_id is not None,
+        "facebook_linked": False,
+        "created_at": vendor.created_at.strftime("%d %b %Y, %I:%M %p"),
+        "updated_at": vendor.updated_at.strftime("%d %b %Y, %I:%M %p"),
+    }
+
+    strikes_data = [
+        {
+            "id": s.id,
+            "product_name": s.product_name,
+            "reason": s.reason,
+            "strike_number": s.strike_number,
+            "created_at": s.created_at.strftime("%d %b %Y, %I:%M %p"),
+            "product_deleted": Product.query.get(s.product_id) is None if s.product_id else True,
+        }
+        for s in strikes
+    ]
+
+    return jsonify({
+        "success": True,
+        "vendor": vendor_data,
+        "strikes": strikes_data
+    }), 200
