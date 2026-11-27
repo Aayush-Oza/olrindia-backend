@@ -404,12 +404,20 @@ def get_vendor_store(store_slug):
         Product.longitude.isnot(None),
     ).count()
 
+    search = request.args.get("search", "").strip().lower()
+
     query = Product.query.filter_by(vendor_id=v.id, is_active=True).filter(
         Product.latitude.isnot(None),
         Product.longitude.isnot(None),
     )
     if listing_type in ("rent", "sell"):
         query = query.filter_by(listing_type=listing_type)
+    if search:
+        query = query.filter(db.or_(
+            Product.name.ilike(f"%{search}%"),
+            Product.description.ilike(f"%{search}%"),
+            Product.category.ilike(f"%{search}%"),
+        ))
     query = query.order_by(Product.click_count.desc())
 
     total    = query.count()
