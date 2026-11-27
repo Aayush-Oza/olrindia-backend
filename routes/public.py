@@ -67,6 +67,9 @@ def clear_public_cache():
         product_keys = cache.keys("product:*")
         if product_keys:
             cache.delete(*product_keys)
+        vendor_keys = cache.keys("vendor_store:*")
+        if vendor_keys:
+            cache.delete(*vendor_keys)
         cache.delete("categories")
         cache.delete("categories:rent")
         cache.delete("categories:sell")
@@ -106,7 +109,6 @@ def get_categories():
             Vendor.is_active       == True,
             Vendor.is_verified     == True,
             vendor_plan_active_filter(),
-            # Only count products that have proper coordinates
             Product.latitude.isnot(None),
             Product.longitude.isnot(None),
         )
@@ -135,12 +137,6 @@ def get_categories():
 
 
 # ── /products/public ──────────────────────────────────────────────────────────
-# Sort logic (Option B):
-#   WITH user lat/lng  → plan tier first (premium→growth→starter→free),
-#                         within each tier sorted by nearest distance
-#   WITHOUT user lat/lng → plan tier first, then click_count desc (original)
-#
-# Only products WITH latitude+longitude are shown publicly.
 @public_bp.route("/public", methods=["GET"])
 @limiter.limit("60 per minute")
 def get_public_products():
@@ -173,13 +169,12 @@ def get_public_products():
     if listing_type not in ("rent", "sell", "all"):
         listing_type = "all"
 
-    # Distance-based sorting cannot be cached meaningfully per user,
-    # so we only cache when no user location is provided.
+    # Only cache when no user location and no search
     cache_key = None
-    if not has_user_location:
+    if not has_user_location and not search:
         cache_key = (
             f"public:{listing_type}:{page}:{per_page}:{category}:{city}:"
-            f"{price_type}:{price_min}:{price_max}:{search}:{condition}"
+            f"{price_type}:{price_min}:{price_max}:{condition}"
         )
         cached = cache.get(cache_key)
         if cached:
@@ -191,7 +186,6 @@ def get_public_products():
         Vendor.is_active       == True,
         Vendor.is_verified     == True,
         vendor_plan_active_filter(),
-        # Only show products with proper GPS coordinates
         Product.latitude.isnot(None),
         Product.longitude.isnot(None),
     ]
@@ -262,20 +256,18 @@ def get_public_products():
 
     # ── Fetch all matching rows (needed for distance sort in Python) ──────────
     if has_user_location:
-        # Fetch all matching rows, sort in Python by (plan_rank DESC, distance ASC)
         all_rows = query.all()
 
         def sort_key(row):
             p, v = row
             plan_rank = PLAN_RANK.get(v.effective_plan_name(), 0)
             distance  = haversine_km(user_lat, user_lng, float(p.latitude), float(p.longitude))
-            # Negate plan_rank so higher plan = smaller sort value (sorts first)
             return (-plan_rank, distance)
 
         all_rows.sort(key=sort_key)
 
-        total    = len(all_rows)
-        offset   = (page - 1) * per_page
+        total     = len(all_rows)
+        offset    = (page - 1) * per_page
         page_rows = all_rows[offset: offset + per_page]
 
         result = []
@@ -289,7 +281,6 @@ def get_public_products():
             result.append(d)
 
     else:
-        # No user location - original DB-level sort: plan tier then clicks
         from sqlalchemy import case
         plan_order = case(
             (Vendor.subscription_plan.in_(["premium", "premium_yearly"]), 0),
@@ -310,17 +301,16 @@ def get_public_products():
             result.append(d)
 
     response_data = {
-        "success":            True,
-        "products":           result,
-        "listing_type":       listing_type,
-        "page":               page,
-        "per_page":           per_page,
-        "total":              total,
-        "has_more":           (page * per_page) < total,
-        "location_used":      has_user_location,
+        "success":       True,
+        "products":      result,
+        "listing_type":  listing_type,
+        "page":          page,
+        "per_page":      per_page,
+        "total":         total,
+        "has_more":      (page * per_page) < total,
+        "location_used": has_user_location,
     }
 
-    # Only cache when no user location (distance results are per-user)
     if cache_key:
         cache.setex(cache_key, 60, json.dumps(response_data))
 
@@ -340,7 +330,6 @@ def get_public_product(slug):
     if not p:
         return jsonify({"success": False, "message": "Product not found or no longer available."}), 404
 
-    # Product must have coordinates
     if p.latitude is None or p.longitude is None:
         return jsonify({"success": False, "message": "This listing is not available."}), 404
 
@@ -379,11 +368,14 @@ def get_vendor_store(store_slug):
 
     page     = request.args.get("page", 1, type=int)
     per_page = min(request.args.get("per_page", 20, type=int), 50)
+    search   = request.args.get("search", "").strip().lower()
 
+    # Only cache when no search param
     cache_key = f"vendor_store:{store_slug}:{listing_type}:{page}:{per_page}"
-    cached = cache.get(cache_key)
-    if cached:
-        return jsonify(json.loads(cached)), 200
+    if not search:
+        cached = cache.get(cache_key)
+        if cached:
+            return jsonify(json.loads(cached)), 200
 
     v = Vendor.query.filter_by(store_slug=store_slug, is_active=True, is_verified=True).first()
     if not v:
@@ -396,7 +388,7 @@ def get_vendor_store(store_slug):
     if not plan_ok:
         return jsonify({"success": False, "message": "This store is not available."}), 404
 
-    # Total active listings with coordinates
+    # Total active listings (always unfiltered for hero stat)
     total_listings = Product.query.filter_by(
         vendor_id=v.id, is_active=True
     ).filter(
@@ -404,8 +396,7 @@ def get_vendor_store(store_slug):
         Product.longitude.isnot(None),
     ).count()
 
-    search = request.args.get("search", "").strip().lower()
-
+    # Filtered query
     query = Product.query.filter_by(vendor_id=v.id, is_active=True).filter(
         Product.latitude.isnot(None),
         Product.longitude.isnot(None),
@@ -445,7 +436,11 @@ def get_vendor_store(store_slug):
         "has_more":     (page * per_page) < total,
         "listing_type": listing_type,
     }
-    cache.setex(cache_key, 60, json.dumps(response_data))
+
+    # Only cache non-search responses
+    if not search:
+        cache.setex(cache_key, 60, json.dumps(response_data))
+
     return jsonify(response_data), 200
 
 
